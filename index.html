@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0f0c" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>Esteira — Contagem de grãos</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -38,8 +39,16 @@
             <span class="metric-value" id="visibleValue">0</span>
           </div>
           <div>
+            <span class="metric-label">Taxa / min</span>
+            <span class="metric-value" id="rateValue">0</span>
+          </div>
+          <div>
             <span class="metric-label">FPS</span>
             <span class="metric-value" id="fpsValue">—</span>
+          </div>
+          <div>
+            <span class="metric-label">Sessão</span>
+            <span class="metric-value" id="sessionValue">0:00</span>
           </div>
         </div>
         <div class="actions">
@@ -57,33 +66,53 @@
       </button>
       <div class="panel-body" id="panelBody" hidden>
         <label class="field">
-          <span>Limiar de brilho <em id="thresholdLabel">140</em></span>
-          <input type="range" id="threshold" min="20" max="250" value="140" />
+          <span>Modo de detecção</span>
+          <select id="mode">
+            <option value="contrast" selected>Contraste com a esteira (recomendado)</option>
+            <option value="local">Limiar local (iluminação irregular)</option>
+            <option value="absolute">Limiar absoluto (clássico)</option>
+          </select>
         </label>
         <label class="field">
-          <span>Área mínima (px) <em id="minAreaLabel">40</em></span>
-          <input type="range" id="minArea" min="5" max="800" value="40" />
+          <span id="thresholdTitle">Contraste sobre a esteira <em id="thresholdLabel">38</em></span>
+          <input type="range" id="threshold" min="8" max="120" value="38" />
         </label>
         <label class="field">
-          <span>Área máxima (px) <em id="maxAreaLabel">4000</em></span>
-          <input type="range" id="maxArea" min="100" max="20000" value="4000" />
+          <span>Área mínima (px) <em id="minAreaLabel">25</em></span>
+          <input type="range" id="minArea" min="3" max="500" value="25" />
+        </label>
+        <label class="field">
+          <span>Área máxima (px) <em id="maxAreaLabel">2500</em></span>
+          <input type="range" id="maxArea" min="80" max="15000" value="2500" />
         </label>
         <label class="field">
           <span>Posição da linha (%) <em id="linePosLabel">50</em></span>
           <input type="range" id="linePos" min="10" max="90" value="50" />
         </label>
         <label class="field">
-          <span>Sensibilidade de match <em id="matchDistLabel">28</em></span>
-          <input type="range" id="matchDist" min="10" max="80" value="28" />
+          <span>Largura da faixa ROI (%) <em id="roiLabel">55</em></span>
+          <input type="range" id="roi" min="15" max="100" value="55" />
+        </label>
+        <label class="field">
+          <span>Sensibilidade de match <em id="matchDistLabel">36</em></span>
+          <input type="range" id="matchDist" min="10" max="100" value="36" />
+        </label>
+        <label class="field">
+          <span>Limpeza / separação <em id="morphLabel">1</em></span>
+          <input type="range" id="morph" min="0" max="4" value="1" />
         </label>
         <div class="field row">
           <label class="check">
             <input type="checkbox" id="invert" />
-            Inverter limiar (grão escuro)
+            Inverter (grão escuro)
           </label>
           <label class="check">
             <input type="checkbox" id="showMask" />
             Ver máscara
+          </label>
+          <label class="check">
+            <input type="checkbox" id="showRoi" checked />
+            Ver faixa ROI
           </label>
         </div>
         <label class="field">
@@ -95,9 +124,15 @@
             <option value="btt">Baixo → cima</option>
           </select>
         </label>
-        <p class="tip">
-          Dica: a esteira deve ficar bem preta e os grãos bem claros. Ajuste o limiar até só os grãos
-          aparecerem na máscara. A linha virtual deve cortar o fluxo dos grãos.
+        <div class="field row">
+          <button type="button" class="btn primary" id="btnAuto">Auto calibrar</button>
+          <button type="button" class="btn" id="btnSaveCfg">Salvar</button>
+          <button type="button" class="btn" id="btnLoadCfg">Restaurar</button>
+        </div>
+        <p class="tip" id="tipText">
+          Fluxo: fixar a esteira dentro da faixa ROI → <strong>Ver máscara</strong> →
+          <strong>Auto calibrar</strong> (com grãos na tela) → se sobrar sujeira, suba o contraste
+          / área min. A linha deve cortar o fluxo. Só grãos com círculo verde são candidatos.
         </p>
       </div>
     </section>

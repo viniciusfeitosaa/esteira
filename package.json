@@ -1,0 +1,10 @@
+{
+  "name": "esteira",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Contagem de grãos em esteira via navegador (visão por limiar)",
+  "scripts": {
+    "start": "node server.mjs",
+    "http": "node server.mjs --http"
+  }
+}
