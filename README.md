@@ -40,16 +40,27 @@ Abre em `http://localhost:8080`.
 
 | Controle | Uso |
 |----------|-----|
+| **Modo de contagem** | **Esteira** = cruza a linha; **Instantâneo** = quantos na tela (teste na mesa) |
 | Limiar | Suba até a esteira sumir; grãos devem sobrar na máscara |
 | Área min/max | Filtra pó (min) e pedaços/reflexos (max) |
-| Linha | Cruza o fluxo dos grãos |
+| Linha | Cruza o fluxo dos grãos (só no modo Esteira) |
 | ROI | Faixa central — ignore fundo fora da esteira |
 | Morfologia | 1–2 remove ruído; 0 se grãos sumirem |
 | Match | Distância máxima para reassociar o mesmo grão |
 | Direção | Sentido real da esteira |
 | Ver máscara | Confere se só os grãos estão brancos |
 
+**Contar agora** (modo Instantâneo): fixa o total no número de grãos visíveis no momento.
+
 Use **Salvar calibração** para guardar no dispositivo (localStorage).
+
+## Testes sintéticos
+
+```bash
+npm test
+```
+
+Gera frames falsos (esteira + elipses) e valida detecção instantânea, cruzamento de linha e rejeição de ruído.
 
 ## Fluxo sugerido no teste real
 

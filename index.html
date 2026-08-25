@@ -54,6 +54,7 @@
         <div class="actions">
           <button type="button" class="btn primary" id="btnStart">Iniciar câmera</button>
           <button type="button" class="btn" id="btnPause" disabled>Pausar contagem</button>
+          <button type="button" class="btn" id="btnSnap" disabled>Contar agora</button>
           <button type="button" class="btn danger" id="btnReset" disabled>Zerar</button>
         </div>
       </aside>
@@ -65,6 +66,13 @@
         <span class="chevron" aria-hidden="true"></span>
       </button>
       <div class="panel-body" id="panelBody" hidden>
+        <label class="field">
+          <span>Modo de contagem</span>
+          <select id="countMode">
+            <option value="belt" selected>Esteira (cruza a linha)</option>
+            <option value="instant">Instantâneo (quantos na tela)</option>
+          </select>
+        </label>
         <label class="field">
           <span>Modo de detecção</span>
           <select id="mode">
@@ -130,9 +138,10 @@
           <button type="button" class="btn" id="btnLoadCfg">Restaurar</button>
         </div>
         <p class="tip" id="tipText">
-          Fluxo: fixar a esteira dentro da faixa ROI → <strong>Ver máscara</strong> →
-          <strong>Auto calibrar</strong> (com grãos na tela) → se sobrar sujeira, suba o contraste
-          / área min. A linha deve cortar o fluxo. Só grãos com círculo verde são candidatos.
+          <strong>Esteira:</strong> só soma ao cruzar a linha amarela (grãos em movimento).
+          <strong>Instantâneo:</strong> o total acompanha quantos grãos estão visíveis agora
+          (bom para teste na mesa). Use <strong>Contar agora</strong> para fixar um snapshot.
+          Fluxo: ROI → Ver máscara → Auto calibrar → círculos verdes = candidatos.
         </p>
       </div>
     </section>

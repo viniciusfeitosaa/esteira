@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "esteira-calib-v3";
+  const STORAGE_KEY = "esteira-calib-v4";
 
   const video = document.getElementById("video");
   const overlay = document.getElementById("overlay");
@@ -17,6 +17,7 @@
 
   const btnStart = document.getElementById("btnStart");
   const btnPause = document.getElementById("btnPause");
+  const btnSnap = document.getElementById("btnSnap");
   const btnReset = document.getElementById("btnReset");
   const btnTogglePanel = document.getElementById("btnTogglePanel");
   const btnSaveCfg = document.getElementById("btnSaveCfg");
@@ -24,6 +25,7 @@
   const btnAuto = document.getElementById("btnAuto");
   const panelBody = document.getElementById("panelBody");
 
+  const countModeEl = document.getElementById("countMode");
   const modeEl = document.getElementById("mode");
   const thresholdEl = document.getElementById("threshold");
   const minAreaEl = document.getElementById("minArea");
@@ -73,7 +75,11 @@
   let lastRoi = null;
   let lastProc = { w: PROC_W, h: 200 };
 
+  let lastVisibleBlobs = 0;
+  let hintCooldown = 0;
+
   const cfg = {
+    countMode: "belt",
     mode: "contrast",
     threshold: 38,
     minArea: 25,
@@ -89,6 +95,7 @@
   };
 
   function applyCfgToDOM() {
+    countModeEl.value = cfg.countMode || "belt";
     modeEl.value = cfg.mode;
     thresholdEl.value = String(cfg.threshold);
     minAreaEl.value = String(cfg.minArea);
@@ -139,6 +146,7 @@
   }
 
   function readControls() {
+    cfg.countMode = countModeEl.value;
     cfg.mode = modeEl.value;
     cfg.threshold = Number(thresholdEl.value);
     cfg.minArea = Number(minAreaEl.value);
@@ -156,6 +164,16 @@
       maxAreaEl.value = String(cfg.maxArea);
     }
     bindLabels();
+    updateCountModeUI();
+  }
+
+  function updateCountModeUI() {
+    const instant = cfg.countMode === "instant";
+    if (btnSnap) btnSnap.style.display = instant ? "" : "none";
+    const counterLabel = document.querySelector(".counter-label");
+    if (counterLabel) {
+      counterLabel.textContent = instant ? "Grãos na tela" : "Total contado";
+    }
   }
 
   function saveCfg() {
@@ -189,6 +207,22 @@
     cfg.mode = modeEl.value;
     updateThresholdUI();
     readControls();
+  });
+
+  countModeEl.addEventListener("change", () => {
+    readControls();
+    tracks = [];
+    if (cfg.countMode === "instant") {
+      totalCount = lastVisibleBlobs;
+      setStatus(
+        lastVisibleBlobs
+          ? `Instantâneo: ${lastVisibleBlobs} grão(s) visíveis`
+          : "Instantâneo — aponte aos grãos (não precisa cruzar a linha)"
+      );
+    } else {
+      setStatus("Esteira — só conta ao cruzar a linha amarela");
+    }
+    updateHud(lastVisibleBlobs);
   });
 
   [
@@ -807,11 +841,31 @@
 
     if (counting) {
       if (!sessionStart) sessionStart = ts;
-      matchTracks(blobs);
-      countCrossings(line, ts);
+      if (cfg.countMode === "instant") {
+        tracks = [];
+        totalCount = blobs.length;
+      } else {
+        matchTracks(blobs);
+        const before = totalCount;
+        countCrossings(line, ts);
+        if (
+          blobs.length > 0 &&
+          totalCount === before &&
+          ts - hintCooldown > 4000
+        ) {
+          hintCooldown = ts;
+          setStatus(
+            `${blobs.length} detectado(s) — mova pela linha amarela para contar`
+          );
+        } else if (totalCount > before) {
+          setStatus(`Contou +${totalCount - before} · total ${totalCount}`);
+        }
+      }
     } else {
       tracks = [];
     }
+
+    lastVisibleBlobs = blobs.length;
 
     if (!cfg.showMask) {
       drawOverlay(blobs, line, PROC_W, procH, roi);
@@ -943,10 +997,16 @@
       sessionStart = 0;
       btnPause.disabled = false;
       btnReset.disabled = false;
+      btnSnap.disabled = false;
       btnPause.textContent = "Pausar contagem";
       btnStart.disabled = false;
       btnStart.textContent = "Parar câmera";
-      setStatus("Contando… use Auto calibrar se precisar");
+      setStatus(
+        cfg.countMode === "instant"
+          ? "Instantâneo — total = grãos visíveis"
+          : "Esteira — cruze a linha amarela para contar"
+      );
+      updateCountModeUI();
       lastTs = 0;
       rafId = requestAnimationFrame(processFrame);
     } catch (err) {
@@ -974,6 +1034,7 @@
     btnStart.disabled = false;
     btnStart.textContent = "Iniciar câmera";
     btnPause.disabled = true;
+    btnSnap.disabled = true;
     btnPause.textContent = "Pausar contagem";
     setStatus("Câmera desligada");
     updateHud(0);
@@ -1002,6 +1063,14 @@
     updateHud(Number(visibleValue.textContent) || 0);
   });
 
+  btnSnap.addEventListener("click", () => {
+    if (!stream) return;
+    const n = lastVisibleBlobs;
+    totalCount = n;
+    setStatus(`Snapshot: ${n} grão(s) na área`);
+    updateHud(n);
+  });
+
   btnTogglePanel.addEventListener("click", () => {
     const open = btnTogglePanel.getAttribute("aria-expanded") === "true";
     btnTogglePanel.setAttribute("aria-expanded", open ? "false" : "true");
@@ -1012,6 +1081,7 @@
   btnLoadCfg.addEventListener("click", () => {
     if (!loadCfg(false)) {
       Object.assign(cfg, {
+        countMode: "belt",
         mode: "contrast",
         threshold: 38,
         minArea: 25,
@@ -1036,6 +1106,7 @@
   });
 
   loadCfg(true);
+  if (!cfg.countMode) cfg.countMode = "belt";
   applyCfgToDOM();
   readControls();
   updateHud(0);
