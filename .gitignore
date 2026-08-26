@@ -5,3 +5,9 @@ Thumbs.db
 .idea/
 .certs/
 node_modules/
+datasets/
+runs/
+*.pt
+!models/.gitkeep
+models/*.onnx
+models/*.pt
