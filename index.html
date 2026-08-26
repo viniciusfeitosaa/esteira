@@ -55,6 +55,7 @@
           <button type="button" class="btn primary" id="btnStart">Iniciar câmera</button>
           <button type="button" class="btn" id="btnPause" disabled>Pausar contagem</button>
           <button type="button" class="btn" id="btnSnap" disabled>Contar agora</button>
+          <button type="button" class="btn" id="btnAssistCheck" disabled hidden>Verificar com IA</button>
           <button type="button" class="btn danger" id="btnReset" disabled>Zerar</button>
         </div>
       </aside>
@@ -124,6 +125,13 @@
           </label>
         </div>
         <label class="field">
+          <span>Assistente IA (árbitro)</span>
+          <select id="assistMode">
+            <option value="off" selected>Off — só clássico</option>
+            <option value="doubt">Só dúvidas (stub → YOLO)</option>
+          </select>
+        </label>
+        <label class="field">
           <span>Direção da esteira</span>
           <select id="direction">
             <option value="ltr">Esquerda → direita</option>
@@ -142,10 +150,12 @@
           <strong>Instantâneo:</strong> o total acompanha quantos grãos estão visíveis agora
           (bom para teste na mesa). Use <strong>Contar agora</strong> para fixar um snapshot.
           Fluxo: ROI → Ver máscara → Auto calibrar → círculos verdes = candidatos.
+          <strong>Assistente IA:</strong> em “Só dúvidas”, blobs suspeitos (colados/ruído) passam por um árbitro
+          (stub agora; YOLO ONNX depois). Âmbar = dúvida · azul = IA confirmou · vermelho = rejeitado.
         </p>
       </div>
     </section>
   </div>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

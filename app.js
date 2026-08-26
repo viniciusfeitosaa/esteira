@@ -1,7 +1,14 @@
+import {
+  assessDoubt,
+  blobStats,
+  resolveCrossingCount,
+  stubArbitrate,
+} from "./assist.mjs";
+
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "esteira-calib-v4";
+  const STORAGE_KEY = "esteira-calib-v5";
 
   const video = document.getElementById("video");
   const overlay = document.getElementById("overlay");
@@ -18,6 +25,7 @@
   const btnStart = document.getElementById("btnStart");
   const btnPause = document.getElementById("btnPause");
   const btnSnap = document.getElementById("btnSnap");
+  const btnAssistCheck = document.getElementById("btnAssistCheck");
   const btnReset = document.getElementById("btnReset");
   const btnTogglePanel = document.getElementById("btnTogglePanel");
   const btnSaveCfg = document.getElementById("btnSaveCfg");
@@ -26,6 +34,7 @@
   const panelBody = document.getElementById("panelBody");
 
   const countModeEl = document.getElementById("countMode");
+  const assistModeEl = document.getElementById("assistMode");
   const modeEl = document.getElementById("mode");
   const thresholdEl = document.getElementById("threshold");
   const minAreaEl = document.getElementById("minArea");
@@ -76,10 +85,13 @@
   let lastProc = { w: PROC_W, h: 200 };
 
   let lastVisibleBlobs = 0;
+  let lastBlobList = [];
   let hintCooldown = 0;
+  let lastMedianArea = 0;
 
   const cfg = {
     countMode: "belt",
+    assistMode: "off",
     mode: "contrast",
     threshold: 38,
     minArea: 25,
@@ -96,6 +108,7 @@
 
   function applyCfgToDOM() {
     countModeEl.value = cfg.countMode || "belt";
+    assistModeEl.value = cfg.assistMode || "off";
     modeEl.value = cfg.mode;
     thresholdEl.value = String(cfg.threshold);
     minAreaEl.value = String(cfg.minArea);
@@ -147,6 +160,7 @@
 
   function readControls() {
     cfg.countMode = countModeEl.value;
+    cfg.assistMode = assistModeEl.value;
     cfg.mode = modeEl.value;
     cfg.threshold = Number(thresholdEl.value);
     cfg.minArea = Number(minAreaEl.value);
@@ -170,6 +184,11 @@
   function updateCountModeUI() {
     const instant = cfg.countMode === "instant";
     if (btnSnap) btnSnap.style.display = instant ? "" : "none";
+    if (btnAssistCheck) {
+      const showAssistBtn = instant && cfg.assistMode === "doubt";
+      btnAssistCheck.hidden = !showAssistBtn;
+      btnAssistCheck.style.display = showAssistBtn ? "" : "none";
+    }
     const counterLabel = document.querySelector(".counter-label");
     if (counterLabel) {
       counterLabel.textContent = instant ? "Grãos na tela" : "Total contado";
@@ -223,6 +242,15 @@
       setStatus("Esteira — só conta ao cruzar a linha amarela");
     }
     updateHud(lastVisibleBlobs);
+  });
+
+  assistModeEl.addEventListener("change", () => {
+    readControls();
+    setStatus(
+      cfg.assistMode === "doubt"
+        ? "Assistente: só dúvidas (stub — YOLO na fase 2)"
+        : "Assistente off — só clássico"
+    );
   });
 
   [
@@ -601,8 +629,12 @@
           y: b.y,
           prevX: track.x,
           prevY: track.y,
+          area: b.area,
+          w: b.w,
+          h: b.h,
           age: track.age + 1,
           counted: track.counted,
+          assistStatus: track.assistStatus || null,
           missed: 0,
           hits: (track.hits || 1) + 1,
         });
@@ -627,8 +659,12 @@
         y: b.y,
         prevX: b.x,
         prevY: b.y,
+        area: b.area,
+        w: b.w,
+        h: b.h,
         age: 1,
         counted: false,
+        assistStatus: null,
         missed: 0,
         hits: 1,
       });
@@ -637,21 +673,61 @@
     tracks = nextTracks;
   }
 
+  function peersNearLine(track, line) {
+    let n = 0;
+    for (const t of tracks) {
+      if (t.id === track.id || t.missed > 0) continue;
+      if (Math.abs(axisValue(t) - line) < cfg.matchDist * 0.65) n += 1;
+    }
+    return n;
+  }
+
   function countCrossings(line, now) {
     for (const track of tracks) {
       if (track.counted || track.missed > 0) continue;
-      // exige estabilidade mínima (evita flash de ruído)
       if (track.age < 2 || (track.hits || 0) < 2) continue;
       if (
-        crossesForward(
+        !crossesForward(
           { x: track.prevX, y: track.prevY },
           { x: track.x, y: track.y },
           line
         )
       ) {
-        track.counted = true;
-        totalCount += 1;
-        countEvents.push(now);
+        continue;
+      }
+
+      const blob = {
+        area: track.area || 0,
+        w: track.w || 1,
+        h: track.h || 1,
+      };
+      const ctx = {
+        medianArea: lastMedianArea,
+        nearLinePeers: peersNearLine(track, line),
+        hits: track.hits || 0,
+        age: track.age || 0,
+      };
+      const verdict = resolveCrossingCount(blob, ctx, cfg.assistMode);
+      track.counted = true;
+      track.assistStatus =
+        verdict.source === "classic"
+          ? verdict.doubtful
+            ? "doubt"
+            : "classic"
+          : verdict.n <= 0
+            ? "rejected"
+            : "confirmed";
+
+      if (verdict.n > 0) {
+        totalCount += verdict.n;
+        for (let k = 0; k < verdict.n; k++) countEvents.push(now);
+        if (verdict.source !== "classic") {
+          setStatus(
+            `IA stub: ${verdict.reasons.join(",") || "ok"} → +${verdict.n}`
+          );
+        }
+      } else if (verdict.source !== "classic") {
+        setStatus(`IA stub rejeitou (${verdict.reasons.join(",")})`);
       }
     }
   }
@@ -733,20 +809,31 @@
       const x = toX(b.x);
       const y = toY(b.y);
       const r = Math.max(4, Math.sqrt(b.area) * 0.38 * map.scaleX);
+      const doubt =
+        cfg.assistMode === "doubt"
+          ? assessDoubt(b, { medianArea: lastMedianArea })
+          : { doubtful: false };
       octx.beginPath();
       octx.arc(x, y, r, 0, Math.PI * 2);
-      octx.strokeStyle = "rgba(62, 207, 142, 0.95)";
+      if (doubt.doubtful) {
+        octx.strokeStyle = "rgba(242, 180, 60, 0.95)";
+        octx.fillStyle = "rgba(242, 180, 60, 0.28)";
+      } else {
+        octx.strokeStyle = "rgba(62, 207, 142, 0.95)";
+        octx.fillStyle = "rgba(62, 207, 142, 0.3)";
+      }
       octx.lineWidth = 2;
       octx.stroke();
-      octx.fillStyle = "rgba(62, 207, 142, 0.3)";
       octx.fill();
     }
 
     for (const t of tracks) {
       if (t.missed > 0) continue;
-      octx.fillStyle = t.counted
-        ? "rgba(242, 212, 92, 0.95)"
-        : "rgba(232, 240, 234, 0.9)";
+      let fill = "rgba(232, 240, 234, 0.9)";
+      if (t.assistStatus === "confirmed") fill = "rgba(80, 160, 255, 0.95)";
+      else if (t.assistStatus === "rejected") fill = "rgba(228, 87, 87, 0.95)";
+      else if (t.counted) fill = "rgba(242, 212, 92, 0.95)";
+      octx.fillStyle = fill;
       octx.beginPath();
       octx.arc(toX(t.x), toY(t.y), 3, 0, Math.PI * 2);
       octx.fill();
@@ -838,6 +925,9 @@
     const maxA = Math.max(minA + 1, Math.round(cfg.maxArea * scale));
     const blobs = findBlobs(mask, PROC_W, procH, minA, maxA);
     const line = lineCoordinate(PROC_W, procH);
+    const stats = blobStats(blobs);
+    lastMedianArea = stats.medianArea;
+    lastBlobList = blobs;
 
     if (counting) {
       if (!sessionStart) sessionStart = ts;
@@ -998,6 +1088,7 @@
       btnPause.disabled = false;
       btnReset.disabled = false;
       btnSnap.disabled = false;
+      if (btnAssistCheck) btnAssistCheck.disabled = false;
       btnPause.textContent = "Pausar contagem";
       btnStart.disabled = false;
       btnStart.textContent = "Parar câmera";
@@ -1035,6 +1126,7 @@
     btnStart.textContent = "Iniciar câmera";
     btnPause.disabled = true;
     btnSnap.disabled = true;
+    if (btnAssistCheck) btnAssistCheck.disabled = true;
     btnPause.textContent = "Pausar contagem";
     setStatus("Câmera desligada");
     updateHud(0);
@@ -1071,6 +1163,28 @@
     updateHud(n);
   });
 
+  if (btnAssistCheck) {
+    btnAssistCheck.addEventListener("click", () => {
+      if (!stream || !lastBlobList.length) {
+        setStatus("Nada para verificar");
+        return;
+      }
+      const stats = blobStats(lastBlobList);
+      let sum = 0;
+      let adjusted = 0;
+      for (const b of lastBlobList) {
+        const v = stubArbitrate(b, { medianArea: stats.medianArea });
+        sum += v.n;
+        if (v.n !== 1) adjusted += 1;
+      }
+      totalCount = sum;
+      setStatus(
+        `IA stub: ${lastBlobList.length} blobs → ${sum} grãos (${adjusted} ajustados)`
+      );
+      updateHud(lastBlobList.length);
+    });
+  }
+
   btnTogglePanel.addEventListener("click", () => {
     const open = btnTogglePanel.getAttribute("aria-expanded") === "true";
     btnTogglePanel.setAttribute("aria-expanded", open ? "false" : "true");
@@ -1082,6 +1196,7 @@
     if (!loadCfg(false)) {
       Object.assign(cfg, {
         countMode: "belt",
+        assistMode: "off",
         mode: "contrast",
         threshold: 38,
         minArea: 25,
@@ -1107,6 +1222,7 @@
 
   loadCfg(true);
   if (!cfg.countMode) cfg.countMode = "belt";
+  if (!cfg.assistMode) cfg.assistMode = "off";
   applyCfgToDOM();
   readControls();
   updateHud(0);
