@@ -56,7 +56,7 @@ export function stubArbitrate(blob, ctx = {}) {
 }
 
 /**
- * Resolve quantos contar neste cruzamento.
+ * Resolve quantos contar neste cruzamento (síncrono / stub).
  * assistMode: "off" | "doubt"
  */
 export function resolveCrossingCount(blob, ctx, assistMode) {
@@ -67,6 +67,52 @@ export function resolveCrossingCount(blob, ctx, assistMode) {
   const doubt = assessDoubt(blob, ctx);
   if (assistMode === "doubt" && !doubt.doubtful) {
     return { n: 1, source: "classic", doubtful: false, reasons: [] };
+  }
+
+  const verdict = stubArbitrate(blob, { ...ctx, ...doubt });
+  return {
+    n: verdict.n,
+    source: verdict.source,
+    doubtful: true,
+    reasons: verdict.reasons,
+    conf: verdict.conf,
+  };
+}
+
+/**
+ * Versão async: se houver dúvida e `yoloArbitrate` disponível, usa YOLO no crop;
+ * senão cai no stub.
+ * yoloArbitrate: async (blob, ctx) => { n, conf, source, ms? }
+ */
+export async function resolveCrossingCountAsync(
+  blob,
+  ctx,
+  assistMode,
+  yoloArbitrate
+) {
+  if (!assistMode || assistMode === "off") {
+    return { n: 1, source: "classic", doubtful: false, reasons: [] };
+  }
+
+  const doubt = assessDoubt(blob, ctx);
+  if (assistMode === "doubt" && !doubt.doubtful) {
+    return { n: 1, source: "classic", doubtful: false, reasons: [] };
+  }
+
+  if (typeof yoloArbitrate === "function") {
+    try {
+      const verdict = await yoloArbitrate(blob, { ...ctx, ...doubt });
+      return {
+        n: verdict.n,
+        source: verdict.source || "yolo",
+        doubtful: true,
+        reasons: doubt.reasons,
+        conf: verdict.conf,
+        ms: verdict.ms,
+      };
+    } catch (err) {
+      console.warn("YOLO falhou, usando stub:", err);
+    }
   }
 
   const verdict = stubArbitrate(blob, { ...ctx, ...doubt });

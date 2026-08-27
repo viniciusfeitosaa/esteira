@@ -1,12 +1,12 @@
 {
   "name": "esteira",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Contagem de grãos em esteira via navegador (visão por limiar + assistente)",
   "scripts": {
     "start": "node server.mjs",
     "http": "node server.mjs --http",
-    "test": "node tests/synthetic-bench.mjs && node tests/assist-bench.mjs",
+    "test": "node tests/synthetic-bench.mjs && node tests/assist-bench.mjs && node tests/yolo-assist-bench.mjs",
     "dataset:fetch": "py -3.12 scripts/fetch_rice_datasets.py",
     "train:grain": "py -3.12 scripts/train_grain_yolo.py"
   }

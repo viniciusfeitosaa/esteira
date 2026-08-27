@@ -1,0 +1,16 @@
+{
+  "model": "grain-nano.onnx",
+  "imgsz": 320,
+  "nc": 7,
+  "names": [
+    "Broken",
+    "Chalky",
+    "Clean",
+    "Damaged",
+    "Discolored",
+    "Immature",
+    "Organic Foreign Matters"
+  ],
+  "grain_class_ids": [0, 1, 2, 3, 4, 5],
+  "note": "YOLOv8n fine-tune protótipo (subset). Atribuição dataset: Roboflow bits/rice_object_detection CC BY 4.0"
+}

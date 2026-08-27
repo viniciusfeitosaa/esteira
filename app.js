@@ -2,8 +2,10 @@ import {
   assessDoubt,
   blobStats,
   resolveCrossingCount,
+  resolveCrossingCountAsync,
   stubArbitrate,
 } from "./assist.mjs";
+import { createYoloAssist } from "./yolo-assist.mjs";
 
 (() => {
   "use strict";
@@ -86,8 +88,12 @@ import {
 
   let lastVisibleBlobs = 0;
   let lastBlobList = [];
+  let lastFrameRgb = null;
   let hintCooldown = 0;
   let lastMedianArea = 0;
+  let assistBusy = false;
+  let yoloAssist = null;
+  let yoloReady = false;
 
   const cfg = {
     countMode: "belt",
@@ -246,12 +252,32 @@ import {
 
   assistModeEl.addEventListener("change", () => {
     readControls();
-    setStatus(
-      cfg.assistMode === "doubt"
-        ? "Assistente: só dúvidas (stub — YOLO na fase 2)"
-        : "Assistente off — só clássico"
-    );
+    if (cfg.assistMode === "doubt") {
+      ensureYoloLoaded();
+      setStatus(
+        yoloReady
+          ? "Assistente: só dúvidas (YOLO ONNX)"
+          : "Assistente: só dúvidas (carregando YOLO… stub se falhar)"
+      );
+    } else {
+      setStatus("Assistente off — só clássico");
+    }
   });
+
+  async function ensureYoloLoaded() {
+    if (yoloReady) return true;
+    if (!yoloAssist) yoloAssist = createYoloAssist();
+    setStatus("Carregando modelo YOLO (~12 MB)…");
+    const ok = await yoloAssist.load();
+    yoloReady = ok;
+    if (ok) {
+      const st = yoloAssist.getStatus();
+      setStatus(`YOLO pronto (${st.modelUrl})`);
+    } else {
+      setStatus("YOLO indisponível — usando stub");
+    }
+    return ok;
+  }
 
   [
     thresholdEl,
@@ -682,9 +708,36 @@ import {
     return n;
   }
 
+  function applyVerdict(track, verdict, now) {
+    track.counted = true;
+    track.assistStatus =
+      verdict.source === "classic"
+        ? verdict.doubtful
+          ? "doubt"
+          : "classic"
+        : verdict.n <= 0
+          ? "rejected"
+          : "confirmed";
+
+    if (verdict.n > 0) {
+      totalCount += verdict.n;
+      for (let k = 0; k < verdict.n; k++) countEvents.push(now);
+      if (verdict.source !== "classic") {
+        const tag = verdict.source === "yolo" ? "YOLO" : "stub";
+        const ms = verdict.ms != null ? ` · ${verdict.ms.toFixed(0)}ms` : "";
+        setStatus(
+          `${tag}: ${(verdict.reasons || []).join(",") || "ok"} → +${verdict.n}${ms}`
+        );
+      }
+    } else if (verdict.source !== "classic") {
+      const tag = verdict.source === "yolo" ? "YOLO" : "stub";
+      setStatus(`${tag} rejeitou (${(verdict.reasons || []).join(",")})`);
+    }
+  }
+
   function countCrossings(line, now) {
     for (const track of tracks) {
-      if (track.counted || track.missed > 0) continue;
+      if (track.counted || track.missed > 0 || track.pendingAssist) continue;
       if (track.age < 2 || (track.hits || 0) < 2) continue;
       if (
         !crossesForward(
@@ -697,6 +750,8 @@ import {
       }
 
       const blob = {
+        x: track.x,
+        y: track.y,
         area: track.area || 0,
         w: track.w || 1,
         h: track.h || 1,
@@ -707,28 +762,36 @@ import {
         hits: track.hits || 0,
         age: track.age || 0,
       };
-      const verdict = resolveCrossingCount(blob, ctx, cfg.assistMode);
-      track.counted = true;
-      track.assistStatus =
-        verdict.source === "classic"
-          ? verdict.doubtful
-            ? "doubt"
-            : "classic"
-          : verdict.n <= 0
-            ? "rejected"
-            : "confirmed";
 
-      if (verdict.n > 0) {
-        totalCount += verdict.n;
-        for (let k = 0; k < verdict.n; k++) countEvents.push(now);
-        if (verdict.source !== "classic") {
-          setStatus(
-            `IA stub: ${verdict.reasons.join(",") || "ok"} → +${verdict.n}`
-          );
-        }
-      } else if (verdict.source !== "classic") {
-        setStatus(`IA stub rejeitou (${verdict.reasons.join(",")})`);
+      const doubt = assessDoubt(blob, ctx);
+      const needYolo =
+        cfg.assistMode === "doubt" && doubt.doubtful && yoloReady && lastFrameRgb;
+
+      if (needYolo && !assistBusy) {
+        track.pendingAssist = true;
+        track.assistStatus = "doubt";
+        assistBusy = true;
+        const frame = lastFrameRgb;
+        resolveCrossingCountAsync(blob, ctx, cfg.assistMode, async () =>
+          yoloAssist.arbitrateCrop(frame, blob)
+        )
+          .then((verdict) => {
+            applyVerdict(track, verdict, performance.now());
+            track.pendingAssist = false;
+            assistBusy = false;
+            updateHud(lastVisibleBlobs);
+          })
+          .catch(() => {
+            const fallback = resolveCrossingCount(blob, ctx, cfg.assistMode);
+            applyVerdict(track, fallback, performance.now());
+            track.pendingAssist = false;
+            assistBusy = false;
+          });
+        continue;
       }
+
+      const verdict = resolveCrossingCount(blob, ctx, cfg.assistMode);
+      applyVerdict(track, verdict, now);
     }
   }
 
@@ -866,6 +929,12 @@ import {
     pctx.drawImage(video, 0, 0, PROC_W, procH);
     const image = pctx.getImageData(0, 0, PROC_W, procH);
     const data = image.data;
+    // cópia RGB para o árbitro YOLO (antes da máscara sobrescrever)
+    lastFrameRgb = new ImageData(
+      new Uint8ClampedArray(data),
+      PROC_W,
+      procH
+    );
     const n = PROC_W * procH;
     const lum = new Float32Array(n);
 
@@ -1098,6 +1167,7 @@ import {
           : "Esteira — cruze a linha amarela para contar"
       );
       updateCountModeUI();
+      if (cfg.assistMode === "doubt") ensureYoloLoaded();
       lastTs = 0;
       rafId = requestAnimationFrame(processFrame);
     } catch (err) {
@@ -1164,10 +1234,26 @@ import {
   });
 
   if (btnAssistCheck) {
-    btnAssistCheck.addEventListener("click", () => {
-      if (!stream || !lastBlobList.length) {
+    btnAssistCheck.addEventListener("click", async () => {
+      if (!stream || !lastFrameRgb) {
         setStatus("Nada para verificar");
         return;
+      }
+      await ensureYoloLoaded();
+      if (yoloReady) {
+        setStatus("YOLO analisando frame…");
+        try {
+          const v = await yoloAssist.arbitrateFrame(lastFrameRgb);
+          totalCount = v.n;
+          setStatus(
+            `YOLO: ${v.n} grão(s) · conf ${(v.conf || 0).toFixed(2)} · ${v.ms.toFixed(0)}ms`
+          );
+          updateHud(lastBlobList.length);
+          return;
+        } catch (err) {
+          console.warn(err);
+          setStatus("YOLO falhou — tentando stub");
+        }
       }
       const stats = blobStats(lastBlobList);
       let sum = 0;

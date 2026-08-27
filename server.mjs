@@ -24,6 +24,7 @@ const PFX_PASS = "esteira-dev";
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".svg": "image/svg+xml",
@@ -31,6 +32,9 @@ const MIME = {
   ".ico": "image/x-icon",
   ".webp": "image/webp",
   ".map": "application/json",
+  ".onnx": "application/octet-stream",
+  ".wasm": "application/wasm",
+  ".pt": "application/octet-stream",
 };
 
 function localIPs() {

@@ -128,7 +128,7 @@
           <span>Assistente IA (árbitro)</span>
           <select id="assistMode">
             <option value="off" selected>Off — só clássico</option>
-            <option value="doubt">Só dúvidas (stub → YOLO)</option>
+            <option value="doubt">Só dúvidas (YOLO / stub)</option>
           </select>
         </label>
         <label class="field">
@@ -150,8 +150,8 @@
           <strong>Instantâneo:</strong> o total acompanha quantos grãos estão visíveis agora
           (bom para teste na mesa). Use <strong>Contar agora</strong> para fixar um snapshot.
           Fluxo: ROI → Ver máscara → Auto calibrar → círculos verdes = candidatos.
-          <strong>Assistente IA:</strong> em “Só dúvidas”, blobs suspeitos (colados/ruído) passam por um árbitro
-          (stub agora; YOLO ONNX depois). Âmbar = dúvida · azul = IA confirmou · vermelho = rejeitado.
+          <strong>Assistente IA:</strong> em “Só dúvidas”, blobs suspeitos passam pelo
+          <strong>YOLO ONNX</strong> no browser (fallback stub). Âmbar = dúvida · azul = IA · vermelho = rejeitado.
         </p>
       </div>
     </section>

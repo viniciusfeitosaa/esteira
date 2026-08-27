@@ -1,8 +1,12 @@
-# Modelos (fase 2)
+# models/
 
-Coloque aqui o ONNX fine-tunado:
+| Arquivo | Uso |
+|---------|-----|
+| `grain-nano.pt` | Ultralytics / treino (local) |
+| `grain-nano.onnx` | Inferência no browser (fase 2) |
+| `grain-nano.json` | Metadados (classes, imgsz) |
 
-- `grain-nano.onnx` — YOLOv8n/11n classe `grain`
-- `grain-nano.json` — opcional (nomes de classe, input size)
+Dataset e atribuição: `DATASETS.md`.
 
-Enquanto o arquivo não existir, o app usa o **stub** heurístico do assistente.
+O app carrega `./models/grain-nano.onnx` quando **Assistente IA → Só dúvidas**.
+Sem o arquivo, cai no stub heurístico.

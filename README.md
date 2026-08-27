@@ -54,13 +54,15 @@ Abre em `http://localhost:8080`.
 
 Use **Salvar calibração** para guardar no dispositivo (localStorage).
 
-## Testes sintéticos
+## Fase 2 (ONNX no browser)
 
-```bash
-npm test
-```
+1. Garanta `models/grain-nano.onnx` (após `npm run train:grain`).
+2. `npm start` → abra o app.
+3. Calibrar → **Assistente IA → Só dúvidas**.
+4. O modelo (~12 MB) carrega via `onnxruntime-web` (CDN).
+5. Em Instantâneo: **Verificar com IA** roda YOLO no frame inteiro.
 
-Gera frames falsos (esteira + elipses) e valida detecção instantânea, cruzamento de linha e rejeição de ruído.
+Fallback automático para stub se o ONNX não carregar.
 
 ## Fluxo sugerido no teste real
 
