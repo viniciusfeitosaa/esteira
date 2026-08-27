@@ -9,5 +9,6 @@ datasets/
 runs/
 *.pt
 !models/.gitkeep
-models/*.onnx
 models/*.pt
+# ONNX versionado para Render / Pages com YOLO (~12 MB)
+# models/*.onnx  — permitido (grain-nano.onnx)

@@ -1,0 +1,22 @@
+# Render Static Site — Esteira
+# https://dashboard.render.com → New → Blueprint (ou Static Site manual)
+
+services:
+  - type: web
+    name: esteira
+    runtime: static
+    repo: https://github.com/viniciusfeitosaa/esteira
+    branch: main
+    buildCommand: "echo 'static deploy'"
+    staticPublishPath: .
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /models/*
+        name: Cache-Control
+        value: public, max-age=86400
