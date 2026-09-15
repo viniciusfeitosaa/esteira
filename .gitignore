@@ -5,8 +5,14 @@ Thumbs.db
 .idea/
 .certs/
 node_modules/
-datasets/
+datasets/*
+!datasets/pills/
+!datasets/pills/README.md
+!datasets/pills/data.yaml.example
 runs/
+__pycache__/
+*.pyc
+.pytest_cache/
 *.pt
 !models/.gitkeep
 models/*.pt
