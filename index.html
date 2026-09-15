@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0f0c" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>Esteira — Contagem de grãos</title>
+  <title>Esteira — Contagem YOLO</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -15,16 +15,18 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <h1>Esteira</h1>
       </div>
-      <p class="status" id="statusText">Câmera desligada</p>
+      <p class="status" id="statusText">Pronto — conecte o YOLO (PC)</p>
     </header>
 
     <main class="stage">
       <div class="viewport" id="viewport">
         <video id="video" playsinline autoplay muted></video>
+        <img id="yoloFrame" class="yolo-frame" alt="" hidden />
         <canvas id="overlay" aria-hidden="true"></canvas>
         <canvas id="process" class="offscreen" aria-hidden="true"></canvas>
         <div class="viewport-hint" id="viewportHint">
-          Toque em <strong>Iniciar câmera</strong> e aponte para a esteira preta com grãos claros.
+          Motor principal: <strong>YOLO no PC</strong>. Suba o serviço e toque em
+          <strong>Conectar YOLO</strong>. Clássico fica só como fallback.
         </div>
       </div>
 
@@ -51,10 +53,22 @@
             <span class="metric-value" id="sessionValue">0:00</span>
           </div>
         </div>
+        <div class="validation" id="validationBlock">
+          <label class="field compact">
+            <span>Lote esperado N</span>
+            <input type="number" id="expectedLot" min="1" step="1" value="200" />
+          </label>
+          <div class="validation-result">
+            <span class="metric-label">Erro vs lote</span>
+            <span class="metric-value" id="errorPctValue">—</span>
+          </div>
+          <span class="badge" id="validationBadge" data-state="idle">—</span>
+        </div>
         <div class="actions">
-          <button type="button" class="btn primary" id="btnStart">Iniciar câmera</button>
+          <button type="button" class="btn primary" id="btnYoloConnect">Conectar YOLO</button>
+          <button type="button" class="btn primary" id="btnStart" hidden>Iniciar câmera</button>
           <button type="button" class="btn" id="btnPause" disabled>Pausar contagem</button>
-          <button type="button" class="btn" id="btnSnap" disabled>Contar agora</button>
+          <button type="button" class="btn" id="btnSnap" disabled hidden>Contar agora</button>
           <button type="button" class="btn" id="btnAssistCheck" disabled hidden>Verificar com IA</button>
           <button type="button" class="btn danger" id="btnReset" disabled>Zerar</button>
         </div>
@@ -68,13 +82,24 @@
       </button>
       <div class="panel-body" id="panelBody" hidden>
         <label class="field">
+          <span>Motor</span>
+          <select id="engineMode">
+            <option value="yolo" selected>YOLO (PC) — principal</option>
+            <option value="classic">Clássico (fallback browser)</option>
+          </select>
+        </label>
+        <label class="field" id="yoloUrlField">
+          <span>URL do serviço YOLO</span>
+          <input type="text" id="yoloServiceUrl" value="http://localhost:8765" />
+        </label>
+        <label class="field classic-only">
           <span>Modo de contagem</span>
           <select id="countMode">
             <option value="belt" selected>Esteira (cruza a linha)</option>
             <option value="instant">Instantâneo (quantos na tela)</option>
           </select>
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span>Modo de detecção</span>
           <select id="mode">
             <option value="contrast" selected>Contraste com a esteira (recomendado)</option>
@@ -82,15 +107,15 @@
             <option value="absolute">Limiar absoluto (clássico)</option>
           </select>
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span id="thresholdTitle">Contraste sobre a esteira <em id="thresholdLabel">38</em></span>
           <input type="range" id="threshold" min="8" max="120" value="38" />
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span>Área mínima (px) <em id="minAreaLabel">25</em></span>
           <input type="range" id="minArea" min="3" max="500" value="25" />
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span>Área máxima (px) <em id="maxAreaLabel">2500</em></span>
           <input type="range" id="maxArea" min="80" max="15000" value="2500" />
         </label>
@@ -98,22 +123,22 @@
           <span>Posição da linha (%) <em id="linePosLabel">50</em></span>
           <input type="range" id="linePos" min="10" max="90" value="50" />
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span>Largura da faixa ROI (%) <em id="roiLabel">55</em></span>
           <input type="range" id="roi" min="15" max="100" value="55" />
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span>Sensibilidade de match <em id="matchDistLabel">36</em></span>
           <input type="range" id="matchDist" min="10" max="100" value="36" />
         </label>
-        <label class="field">
+        <label class="field classic-only">
           <span>Limpeza / separação <em id="morphLabel">1</em></span>
           <input type="range" id="morph" min="0" max="4" value="1" />
         </label>
-        <div class="field row">
+        <div class="field row classic-only">
           <label class="check">
             <input type="checkbox" id="invert" />
-            Inverter (grão escuro)
+            Inverter (objeto escuro)
           </label>
           <label class="check">
             <input type="checkbox" id="showMask" />
@@ -124,11 +149,11 @@
             Ver faixa ROI
           </label>
         </div>
-        <label class="field">
-          <span>Assistente IA (árbitro)</span>
+        <label class="field classic-only">
+          <span>Assistente IA (legado browser)</span>
           <select id="assistMode">
             <option value="off" selected>Off — só clássico</option>
-            <option value="doubt">Só dúvidas (YOLO / stub)</option>
+            <option value="doubt">Só dúvidas (YOLO ONNX / stub)</option>
           </select>
         </label>
         <label class="field">
@@ -140,18 +165,20 @@
             <option value="btt">Baixo → cima</option>
           </select>
         </label>
-        <div class="field row">
+        <div class="field row classic-only">
           <button type="button" class="btn primary" id="btnAuto">Auto calibrar</button>
           <button type="button" class="btn" id="btnSaveCfg">Salvar</button>
           <button type="button" class="btn" id="btnLoadCfg">Restaurar</button>
         </div>
+        <div class="field row yolo-only">
+          <button type="button" class="btn" id="btnSaveCfgYolo">Salvar</button>
+          <button type="button" class="btn" id="btnLoadCfgYolo">Restaurar</button>
+        </div>
         <p class="tip" id="tipText">
-          <strong>Esteira:</strong> só soma ao cruzar a linha amarela (grãos em movimento).
-          <strong>Instantâneo:</strong> o total acompanha quantos grãos estão visíveis agora
-          (bom para teste na mesa). Use <strong>Contar agora</strong> para fixar um snapshot.
-          Fluxo: ROI → Ver máscara → Auto calibrar → círculos verdes = candidatos.
-          <strong>Assistente IA:</strong> em “Só dúvidas”, blobs suspeitos passam pelo
-          <strong>YOLO ONNX</strong> no browser (fallback stub). Âmbar = dúvida · azul = IA · vermelho = rejeitado.
+          <strong>YOLO (PC):</strong> rode
+          <code>py -3.12 scripts/run_yolo_service.py --source 0</code>
+          e conecte. Meta de lote: erro ≤ 0,5% (N ≥ 200).
+          <strong>Clássico:</strong> fallback no browser; não é o motor de medicamentos.
         </p>
       </div>
     </section>

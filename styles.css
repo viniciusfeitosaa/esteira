@@ -104,6 +104,7 @@ body {
 }
 
 video,
+.yolo-frame,
 #overlay {
   position: absolute;
   inset: 0;
@@ -116,6 +117,65 @@ video,
 
 #overlay {
   pointer-events: none;
+}
+
+.validation {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.field.compact {
+  gap: 4px;
+}
+
+.field.compact input[type="number"],
+#yoloServiceUrl {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0d1210;
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--mono);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  background: rgba(138, 154, 142, 0.2);
+  color: var(--muted);
+}
+
+.badge[data-state="pass"] {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.badge[data-state="fail"] {
+  background: rgba(228, 87, 87, 0.2);
+  color: #ffb4b4;
+}
+
+body.engine-yolo .classic-only,
+body.engine-classic .yolo-only {
+  display: none !important;
+}
+
+.tip code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink);
 }
 
 .offscreen {

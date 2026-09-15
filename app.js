@@ -10,9 +10,11 @@ import { createYoloAssist } from "./yolo-assist.mjs";
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "esteira-calib-v5";
+  const STORAGE_KEY = "esteira-calib-v6";
+  const MAX_LOT_ERROR = 0.005;
 
   const video = document.getElementById("video");
+  const yoloFrame = document.getElementById("yoloFrame");
   const overlay = document.getElementById("overlay");
   const processCanvas = document.getElementById("process");
   const viewport = document.getElementById("viewport");
@@ -23,8 +25,13 @@ import { createYoloAssist } from "./yolo-assist.mjs";
   const fpsValue = document.getElementById("fpsValue");
   const sessionValue = document.getElementById("sessionValue");
   const thresholdTitle = document.getElementById("thresholdTitle");
+  const expectedLotEl = document.getElementById("expectedLot");
+  const errorPctValue = document.getElementById("errorPctValue");
+  const validationBadge = document.getElementById("validationBadge");
+  const viewportHint = document.getElementById("viewportHint");
 
   const btnStart = document.getElementById("btnStart");
+  const btnYoloConnect = document.getElementById("btnYoloConnect");
   const btnPause = document.getElementById("btnPause");
   const btnSnap = document.getElementById("btnSnap");
   const btnAssistCheck = document.getElementById("btnAssistCheck");
@@ -32,9 +39,13 @@ import { createYoloAssist } from "./yolo-assist.mjs";
   const btnTogglePanel = document.getElementById("btnTogglePanel");
   const btnSaveCfg = document.getElementById("btnSaveCfg");
   const btnLoadCfg = document.getElementById("btnLoadCfg");
+  const btnSaveCfgYolo = document.getElementById("btnSaveCfgYolo");
+  const btnLoadCfgYolo = document.getElementById("btnLoadCfgYolo");
   const btnAuto = document.getElementById("btnAuto");
   const panelBody = document.getElementById("panelBody");
 
+  const engineModeEl = document.getElementById("engineMode");
+  const yoloServiceUrlEl = document.getElementById("yoloServiceUrl");
   const countModeEl = document.getElementById("countMode");
   const assistModeEl = document.getElementById("assistMode");
   const modeEl = document.getElementById("mode");
@@ -94,8 +105,17 @@ import { createYoloAssist } from "./yolo-assist.mjs";
   let assistBusy = false;
   let yoloAssist = null;
   let yoloReady = false;
+  let yoloWs = null;
+  let yoloConnected = false;
+  let yoloPaused = false;
+  let yoloFrameTimer = 0;
+  let yoloLastBoxes = [];
+  let yoloFrameSize = { w: 640, h: 480 };
+  let expectedLot = 200;
 
   const cfg = {
+    engineMode: "yolo",
+    yoloServiceUrl: "http://localhost:8765",
     countMode: "belt",
     assistMode: "off",
     mode: "contrast",
@@ -113,6 +133,10 @@ import { createYoloAssist } from "./yolo-assist.mjs";
   };
 
   function applyCfgToDOM() {
+    if (engineModeEl) engineModeEl.value = cfg.engineMode || "yolo";
+    if (yoloServiceUrlEl) {
+      yoloServiceUrlEl.value = cfg.yoloServiceUrl || "http://localhost:8765";
+    }
     countModeEl.value = cfg.countMode || "belt";
     assistModeEl.value = cfg.assistMode || "off";
     modeEl.value = cfg.mode;
@@ -129,6 +153,7 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     directionEl.value = cfg.direction;
     updateThresholdUI();
     bindLabels();
+    updateEngineUI();
   }
 
   function updateThresholdUI() {
@@ -165,6 +190,8 @@ import { createYoloAssist } from "./yolo-assist.mjs";
   }
 
   function readControls() {
+    cfg.engineMode = engineModeEl ? engineModeEl.value : "yolo";
+    if (yoloServiceUrlEl) cfg.yoloServiceUrl = yoloServiceUrlEl.value.trim();
     cfg.countMode = countModeEl.value;
     cfg.assistMode = assistModeEl.value;
     cfg.mode = modeEl.value;
@@ -179,26 +206,248 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     cfg.showMask = showMaskEl.checked;
     cfg.showRoi = showRoiEl.checked;
     cfg.direction = directionEl.value;
+    if (expectedLotEl) expectedLot = Math.max(1, Number(expectedLotEl.value) || 200);
     if (cfg.minArea > cfg.maxArea) {
       cfg.maxArea = cfg.minArea;
       maxAreaEl.value = String(cfg.maxArea);
     }
     bindLabels();
     updateCountModeUI();
+    updateEngineUI();
+    if (yoloConnected) pushYoloConfig();
+    updateValidation();
+  }
+
+  function updateEngineUI() {
+    const yolo = (cfg.engineMode || "yolo") === "yolo";
+    document.body.classList.toggle("engine-yolo", yolo);
+    document.body.classList.toggle("engine-classic", !yolo);
+    if (btnYoloConnect) btnYoloConnect.hidden = !yolo;
+    if (btnStart) btnStart.hidden = yolo;
+    if (yoloFrame) yoloFrame.hidden = !yolo || !yoloConnected;
+    video.hidden = yolo;
+    if (viewportHint) {
+      viewportHint.innerHTML = yolo
+        ? 'Motor principal: <strong>YOLO no PC</strong>. Suba o serviço e toque em <strong>Conectar YOLO</strong>.'
+        : 'Toque em <strong>Iniciar câmera</strong> (fallback clássico no browser).';
+    }
+    const counterLabel = document.querySelector(".counter-label");
+    if (counterLabel && yolo) counterLabel.textContent = "Total contado";
   }
 
   function updateCountModeUI() {
     const instant = cfg.countMode === "instant";
-    if (btnSnap) btnSnap.style.display = instant ? "" : "none";
+    const classic = cfg.engineMode === "classic";
+    if (btnSnap) {
+      btnSnap.style.display = classic && instant ? "" : "none";
+      btnSnap.hidden = !(classic && instant);
+    }
     if (btnAssistCheck) {
-      const showAssistBtn = instant && cfg.assistMode === "doubt";
+      const showAssistBtn = classic && instant && cfg.assistMode === "doubt";
       btnAssistCheck.hidden = !showAssistBtn;
       btnAssistCheck.style.display = showAssistBtn ? "" : "none";
     }
     const counterLabel = document.querySelector(".counter-label");
-    if (counterLabel) {
-      counterLabel.textContent = instant ? "Grãos na tela" : "Total contado";
+    if (counterLabel && classic) {
+      counterLabel.textContent = instant ? "Objetos na tela" : "Total contado";
     }
+  }
+
+  function updateValidation() {
+    if (!errorPctValue || !validationBadge) return;
+    const n = expectedLot;
+    if (!n || n <= 0) {
+      errorPctValue.textContent = "—";
+      validationBadge.textContent = "—";
+      validationBadge.dataset.state = "idle";
+      return;
+    }
+    const err = Math.abs(totalCount - n) / n;
+    errorPctValue.textContent = `${(err * 100).toFixed(2)}%`;
+    const pass = err <= MAX_LOT_ERROR;
+    validationBadge.textContent = pass ? "PASS" : "FAIL";
+    validationBadge.dataset.state = pass ? "pass" : "fail";
+  }
+
+  function yoloBaseUrl() {
+    return (cfg.yoloServiceUrl || "http://localhost:8765").replace(/\/$/, "");
+  }
+
+  function yoloWsUrl() {
+    const u = new URL(yoloBaseUrl());
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    u.pathname = "/ws";
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  }
+
+  function pushYoloConfig() {
+    if (!yoloWs || yoloWs.readyState !== WebSocket.OPEN) return;
+    yoloWs.send(
+      JSON.stringify({
+        type: "config",
+        direction: cfg.direction,
+        line_pos: cfg.linePos,
+        conf: 0.35,
+      })
+    );
+  }
+
+  function drawYoloOverlay(state) {
+    const rect = viewport.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(1, rect.width);
+    const cssH = Math.max(1, rect.height);
+    if (overlay.width !== Math.round(cssW * dpr) || overlay.height !== Math.round(cssH * dpr)) {
+      overlay.width = Math.round(cssW * dpr);
+      overlay.height = Math.round(cssH * dpr);
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    octx.clearRect(0, 0, cssW, cssH);
+    const fw = state.frame_w || yoloFrameSize.w;
+    const fh = state.frame_h || yoloFrameSize.h;
+    const map = containMap(fw, fh, cssW, cssH);
+    const boxes = state.boxes || [];
+    yoloLastBoxes = boxes;
+    octx.strokeStyle = "#3ecf8e";
+    octx.lineWidth = 2;
+    octx.font = "12px ui-monospace, monospace";
+    octx.fillStyle = "#e8f0ea";
+    for (const b of boxes) {
+      const x = map.offsetX + b.x1 * map.scaleX;
+      const y = map.offsetY + b.y1 * map.scaleY;
+      const w = (b.x2 - b.x1) * map.scaleX;
+      const h = (b.y2 - b.y1) * map.scaleY;
+      octx.strokeRect(x, y, w, h);
+      octx.fillText(String(b.id), x + 2, Math.max(12, y - 4));
+    }
+    const pos = state.line_pos ?? cfg.linePos;
+    const dir = state.direction || cfg.direction;
+    octx.strokeStyle = "#f2d45c";
+    octx.lineWidth = 2;
+    octx.beginPath();
+    if (dir === "ltr" || dir === "rtl") {
+      const x = map.offsetX + fw * pos * map.scaleX;
+      octx.moveTo(x, map.offsetY);
+      octx.lineTo(x, map.offsetY + fh * map.scaleY);
+    } else {
+      const y = map.offsetY + fh * pos * map.scaleY;
+      octx.moveTo(map.offsetX, y);
+      octx.lineTo(map.offsetX + fw * map.scaleX, y);
+    }
+    octx.stroke();
+  }
+
+  function onYoloState(state) {
+    if (!state || state.type !== "state") return;
+    const prev = totalCount;
+    totalCount = Number(state.total) || 0;
+    if (totalCount > prev) {
+      for (let i = 0; i < totalCount - prev; i++) countEvents.push(performance.now());
+    }
+    fpsEma = Number(state.fps) || fpsEma;
+    yoloFrameSize = { w: state.frame_w || 640, h: state.frame_h || 480 };
+    yoloPaused = !!state.paused;
+    if (!sessionStart && yoloConnected && !yoloPaused) sessionStart = performance.now();
+    const visible = (state.boxes || []).length;
+    updateHud(visible);
+    updateValidation();
+    drawYoloOverlay(state);
+    if (state.model_warning) {
+      setStatus(`YOLO: ${state.model_warning}`);
+    }
+  }
+
+  async function pollYoloFrame() {
+    if (!yoloConnected) return;
+    try {
+      const res = await fetch(`${yoloBaseUrl()}/frame.jpg?t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const prev = yoloFrame.src;
+      yoloFrame.src = url;
+      yoloFrame.hidden = false;
+      viewport.classList.add("live");
+      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+    } catch {
+      /* ignore transient */
+    }
+  }
+
+  function disconnectYolo() {
+    yoloConnected = false;
+    if (yoloWs) {
+      try {
+        yoloWs.close();
+      } catch {
+        /* ignore */
+      }
+      yoloWs = null;
+    }
+    if (yoloFrameTimer) {
+      clearInterval(yoloFrameTimer);
+      yoloFrameTimer = 0;
+    }
+    if (yoloFrame.src && yoloFrame.src.startsWith("blob:")) {
+      URL.revokeObjectURL(yoloFrame.src);
+    }
+    yoloFrame.removeAttribute("src");
+    yoloFrame.hidden = true;
+    viewport.classList.remove("live");
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    sessionStart = 0;
+    btnPause.disabled = true;
+    btnReset.disabled = true;
+    btnYoloConnect.textContent = "Conectar YOLO";
+    btnPause.textContent = "Pausar contagem";
+    setStatus("YOLO desconectado");
+    updateHud(0);
+    updateValidation();
+  }
+
+  function connectYolo() {
+    readControls();
+    if (yoloConnected) {
+      disconnectYolo();
+      return;
+    }
+    if (stream) stopCamera();
+    setStatus("Conectando ao serviço YOLO…");
+    try {
+      yoloWs = new WebSocket(yoloWsUrl());
+    } catch (err) {
+      console.error(err);
+      setStatus("URL WebSocket inválida");
+      return;
+    }
+    yoloWs.addEventListener("open", () => {
+      yoloConnected = true;
+      btnYoloConnect.textContent = "Desconectar YOLO";
+      btnPause.disabled = false;
+      btnReset.disabled = false;
+      sessionStart = performance.now();
+      pushYoloConfig();
+      setStatus("YOLO conectado — contando no PC");
+      yoloFrameTimer = setInterval(pollYoloFrame, 200);
+      pollYoloFrame();
+    });
+    yoloWs.addEventListener("message", (ev) => {
+      try {
+        onYoloState(JSON.parse(ev.data));
+      } catch {
+        /* ignore */
+      }
+    });
+    yoloWs.addEventListener("close", () => {
+      if (yoloConnected) disconnectYolo();
+    });
+    yoloWs.addEventListener("error", () => {
+      setStatus("Falha no WebSocket — serviço rodando em :8765?");
+    });
   }
 
   function saveCfg() {
@@ -264,6 +513,27 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     }
   });
 
+  if (engineModeEl) {
+    engineModeEl.addEventListener("change", () => {
+      const next = engineModeEl.value;
+      if (next === "classic" && yoloConnected) disconnectYolo();
+      if (next === "yolo" && stream) stopCamera();
+      readControls();
+      setStatus(
+        next === "yolo"
+          ? "Motor YOLO (PC) — conecte o serviço"
+          : "Motor clássico (fallback browser)"
+      );
+    });
+  }
+
+  if (expectedLotEl) {
+    expectedLotEl.addEventListener("input", () => {
+      expectedLot = Math.max(1, Number(expectedLotEl.value) || 200);
+      updateValidation();
+    });
+  }
+
   async function ensureYoloLoaded() {
     if (yoloReady) return true;
     if (!yoloAssist) yoloAssist = createYoloAssist();
@@ -322,11 +592,12 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     visibleValue.textContent = String(visible);
     rateValue.textContent = String(ratePerMinute(now));
     fpsValue.textContent = fpsEma ? fpsEma.toFixed(0) : "—";
-    if (sessionStart && counting) {
+    if (sessionStart && (counting || yoloConnected)) {
       sessionValue.textContent = formatSession(now - sessionStart);
     } else if (!sessionStart) {
       sessionValue.textContent = "0:00";
     }
+    updateValidation();
   }
 
   function isHorizontal() {
@@ -1207,7 +1478,18 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     else startCamera();
   });
 
+  if (btnYoloConnect) {
+    btnYoloConnect.addEventListener("click", () => connectYolo());
+  }
+
   btnPause.addEventListener("click", () => {
+    if (yoloConnected && yoloWs && yoloWs.readyState === WebSocket.OPEN) {
+      yoloPaused = !yoloPaused;
+      yoloWs.send(JSON.stringify({ type: "pause", paused: yoloPaused }));
+      btnPause.textContent = yoloPaused ? "Retomar contagem" : "Pausar contagem";
+      setStatus(yoloPaused ? "Contagem pausada (PC)" : "Contando no PC…");
+      return;
+    }
     if (!stream) return;
     counting = !counting;
     if (!counting) tracks = [];
@@ -1221,7 +1503,11 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     lastDisplayCount = 0;
     countEvents = [];
     tracks = [];
-    sessionStart = counting ? performance.now() : 0;
+    sessionStart =
+      counting || (yoloConnected && !yoloPaused) ? performance.now() : 0;
+    if (yoloConnected && yoloWs && yoloWs.readyState === WebSocket.OPEN) {
+      yoloWs.send(JSON.stringify({ type: "reset" }));
+    }
     updateHud(Number(visibleValue.textContent) || 0);
   });
 
@@ -1278,9 +1564,12 @@ import { createYoloAssist } from "./yolo-assist.mjs";
   });
 
   btnSaveCfg.addEventListener("click", saveCfg);
-  btnLoadCfg.addEventListener("click", () => {
+  if (btnSaveCfgYolo) btnSaveCfgYolo.addEventListener("click", saveCfg);
+  const restoreCfg = () => {
     if (!loadCfg(false)) {
       Object.assign(cfg, {
+        engineMode: "yolo",
+        yoloServiceUrl: "http://localhost:8765",
         countMode: "belt",
         assistMode: "off",
         mode: "contrast",
@@ -1297,20 +1586,29 @@ import { createYoloAssist } from "./yolo-assist.mjs";
         direction: "ltr",
       });
       applyCfgToDOM();
+      updateEngineUI();
       setStatus("Padrões restaurados");
     }
-  });
+  };
+  btnLoadCfg.addEventListener("click", restoreCfg);
+  if (btnLoadCfgYolo) btnLoadCfgYolo.addEventListener("click", restoreCfg);
   btnAuto.addEventListener("click", autoCalibrate);
 
   window.addEventListener("beforeunload", () => {
     if (stream) stopCamera();
+    if (yoloConnected) disconnectYolo();
   });
 
   loadCfg(true);
+  if (!cfg.engineMode) cfg.engineMode = "yolo";
   if (!cfg.countMode) cfg.countMode = "belt";
   if (!cfg.assistMode) cfg.assistMode = "off";
   applyCfgToDOM();
   readControls();
   updateHud(0);
-  setStatus("Pronto — inicie a câmera");
+  setStatus(
+    cfg.engineMode === "yolo"
+      ? "Pronto — conecte o YOLO (PC)"
+      : "Pronto — inicie a câmera"
+  );
 })();
