@@ -16,5 +16,6 @@ __pycache__/
 *.pt
 !models/.gitkeep
 models/*.pt
+tests/fixtures/
 # ONNX versionado para Render / Pages com YOLO (~12 MB)
 # models/*.onnx  — permitido (grain-nano.onnx)
