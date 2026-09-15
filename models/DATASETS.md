@@ -1,6 +1,25 @@
-# Datasets de grãos de arroz (para YOLO)
+# Datasets — esteira
 
-Curadoria para o assistente híbrido ESTEIRA. **Evitar** datasets de *folha/doença*.
+## Medicamentos (motor atual)
+
+Classe única: **`pill`**. Layout e captura:
+
+- `datasets/pills/README.md`
+- `docs/CAPTURE-PILLS.md`
+- `docs/BOOTSTRAP-PILLS.md`
+
+```bash
+# data.yaml a partir de data.yaml.example
+py -3.12 scripts/train_pill_yolo.py   # → models/pill-nano.pt
+```
+
+`grain-nano` (arroz) **não** substitui `pill-nano` para medicamentos.
+
+---
+
+# Datasets de grãos de arroz (legado / assistente ONNX)
+
+Curadoria para o assistente híbrido ESTEIRA no browser. **Evitar** datasets de *folha/doença*.
 
 ## Em uso neste repo
 
@@ -10,36 +29,13 @@ Curadoria para o assistente híbrido ESTEIRA. **Evitar** datasets de *folha/doen
 
 Atribuição obrigatória: [Roboflow — rice_object_detection](https://universe.roboflow.com/bits/rice_object_detection/dataset/1).
 
-### Treino
+### Treino (legado)
 
-- Máquina atual sem GPU → script usa `fraction=0.15` + 5 epochs (protótipo).  
-- Treino completo (recomendado): GPU / Google Colab com `fraction=1.0`, `epochs=50`, `imgsz=640`.  
 - Saída: `models/grain-nano.pt` + `models/grain-nano.onnx`.
 
-### Classes do dataset (qualidade)
-
-`Broken`, `Chalky`, `Clean`, `Damaged`, `Discolored`, `Immature`, `Organic Foreign Matters`  
-
-Para a esteira, o árbitro pode contar **qualquer** detecção como grão; classes extras ajudam depois (quebrado vs inteiro — alinhado ao preprint YOLOv8).
-
-## Outros candidatos
-
-| Dataset | Link | Notas |
-|---------|------|-------|
-| Rice OD 75k (Ali Khalili / Koklu) | [Kaggle](https://www.kaggle.com/datasets/alikhalilit98/rice-image-dataset-for-object-detection) | CC0 base; precisa `kaggle.json` |
-| Koklu rice images | [Kaggle](https://www.kaggle.com/datasets/muratkokludataset/rice-image-dataset) | CC0; 1 grão/foto (classificação) |
-| RiceLCNN (fundo preto) | [GitHub](https://github.com/5120191452/RiceLCNN) | Ideal domínio esteira; verificar release de dados |
-| Roboflow rice grain | [Universe](https://universe.roboflow.com/search?q=rice%20grain) | Inspecionar fundo/densidade |
-
-## Não usar
-
-- Datasets de **rice leaf disease** (folhas).
-
-## Comandos
-
 ```bash
-py -3.12 scripts/fetch_rice_datasets.py   # baixa/prepara
-py -3.12 scripts/train_grain_yolo.py      # treina yolov8n → models/grain-nano.onnx
+py -3.12 scripts/fetch_rice_datasets.py
+py -3.12 scripts/train_grain_yolo.py
 ```
 
 `datasets/`, `runs/`, `*.pt` e `models/*.onnx` estão no `.gitignore` (pesados).
