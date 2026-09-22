@@ -41,7 +41,13 @@ def resolve_model(path: Optional[str]) -> tuple[str, Optional[str]]:
     )
 
 
-def create_app(source: str | int = 0, model: Optional[str] = None) -> FastAPI:
+def create_app(
+    source: str | int = 0,
+    model: Optional[str] = None,
+    direction: str = "btt",
+    line_pos: float = 0.55,
+    conf: float = 0.22,
+) -> FastAPI:
     global pipeline
 
     model_path, warning = resolve_model(model)
@@ -49,7 +55,13 @@ def create_app(source: str | int = 0, model: Optional[str] = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         global pipeline, _broadcast_task
-        pipeline = YoloCountPipeline(model_path=model_path, source=source)
+        pipeline = YoloCountPipeline(
+            model_path=model_path,
+            source=source,
+            direction=direction,
+            line_pos=line_pos,
+            conf=conf,
+        )
         pipeline.model_warning = warning
         pipeline.open()
         _broadcast_task = asyncio.create_task(_broadcast_loop())

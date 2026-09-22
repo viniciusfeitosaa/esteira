@@ -1,0 +1,8 @@
+# ByteTrack tunado para comprimidos pequenos / video comprimido (WhatsApp)
+tracker_type: bytetrack
+track_high_thresh: 0.28
+track_low_thresh: 0.08
+new_track_thresh: 0.32
+track_buffer: 60
+match_thresh: 0.7
+fuse_score: True

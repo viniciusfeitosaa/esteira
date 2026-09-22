@@ -21,9 +21,18 @@ def main():
     p.add_argument("--model", default=None, help="Path to .pt (default pill-nano or yolov8n)")
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--direction", default="btt", choices=("ltr", "rtl", "ttb", "btt"))
+    p.add_argument("--line-pos", type=float, default=0.55)
+    p.add_argument("--conf", type=float, default=0.22)
     args = p.parse_args()
     source: str | int = int(args.source) if str(args.source).isdigit() else args.source
-    app = create_app(source=source, model=args.model)
+    app = create_app(
+        source=source,
+        model=args.model,
+        direction=args.direction,
+        line_pos=args.line_pos,
+        conf=args.conf,
+    )
     print(f"YOLO service http://localhost:{args.port}/health  ws://localhost:{args.port}/ws")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 

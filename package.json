@@ -8,6 +8,7 @@
     "http": "node server.mjs --http",
     "test": "node tests/synthetic-bench.mjs && node tests/assist-bench.mjs && node tests/yolo-assist-bench.mjs",
     "dataset:fetch": "py -3.12 scripts/fetch_rice_datasets.py",
+    "dataset:pills": "py -3.12 scripts/fetch_pill_datasets.py",
     "train:grain": "py -3.12 scripts/train_grain_yolo.py",
     "train:pill": "py -3.12 scripts/train_pill_yolo.py",
     "yolo:serve": "py -3.12 scripts/run_yolo_service.py --source 0"

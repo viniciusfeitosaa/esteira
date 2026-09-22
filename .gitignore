@@ -9,6 +9,10 @@ datasets/*
 !datasets/pills/
 !datasets/pills/README.md
 !datasets/pills/data.yaml.example
+datasets/pills/images/
+datasets/pills/labels/
+datasets/pills/data.yaml
+datasets/pills_belt/
 runs/
 __pycache__/
 *.pyc
@@ -16,6 +20,7 @@ __pycache__/
 *.pt
 !models/.gitkeep
 models/*.pt
+.cache/
 tests/fixtures/
 # ONNX versionado para Render / Pages com YOLO (~12 MB)
 # models/*.onnx  — permitido (grain-nano.onnx)

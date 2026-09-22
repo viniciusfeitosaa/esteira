@@ -19,13 +19,23 @@ Saída: `models/pill-nano.pt`.
 
 ## Opção B — dataset público (só licença CC / permissiva)
 
-Procure no [Roboflow Universe](https://universe.roboflow.com/) por *pill* / *tablet* / *capsule* com fundo escuro ou esteira.
+Bootstrap automático (RF100 pills, CC BY 4.0, ~450 imgs, classes → `pill`):
+
+```bash
+py -3.12 scripts/fetch_pill_datasets.py
+py -3.12 scripts/train_pill_yolo.py
+# → models/pill-nano.pt
+```
+
+Ou procure no [Roboflow Universe](https://universe.roboflow.com/) por *pill* / *tablet* / *capsule* com fundo escuro.
 
 - Confirme licença (CC BY / CC0 / MIT).
 - Exporte YOLO v8, 1 classe ou mapeie todas para `pill`.
 - Coloque em `datasets/pills/` e treine como na opção A.
 
 **Não** use pesos de arroz (`grain-nano`) como motor de medicamentos.
+
+Atribuição RF100: [roboflow-100/pills-sxdht](https://universe.roboflow.com/roboflow-100/pills-sxdht) (Mohamed Attia).
 
 ## Sem pesos de pill
 
