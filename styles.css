@@ -159,6 +159,19 @@ body {
   font-size: 0.85rem;
 }
 
+.camera-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.camera-picker select {
+  width: auto;
+  min-width: 200px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+}
+
 .viewport.drawing + .toolbar #btnDrawArea {
   border-color: #ff9f1c;
   color: #ffcf8a;

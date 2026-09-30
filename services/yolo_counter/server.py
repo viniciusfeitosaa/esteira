@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from .pipeline import YoloCountPipeline
+from .sources import describe, list_cameras, list_videos, resolve_video
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PILL = ROOT / "models" / "pill-nano.pt"
@@ -32,6 +34,11 @@ class ConfigBody(BaseModel):
     line_pos: Optional[float] = Field(default=None, ge=0.05, le=0.95)
     conf: Optional[float] = Field(default=None, ge=0.05, le=0.95)
     roi: Optional[list[float]] = Field(default=None, min_length=4, max_length=4)
+
+
+class SourceBody(BaseModel):
+    # indice da camera (0, 1, 2…) ou caminho de um video de samples/videos (ver GET /sources)
+    source: int | str
 
 
 def _roi_tuple(v: Any) -> Optional[tuple[float, float, float, float]]:
@@ -106,6 +113,8 @@ def create_app(
             "warning": warning,
             "lite": bool(pipeline.lite) if pipeline else lite,
             "imgsz": pipeline.imgsz if pipeline else None,
+            "source": describe(pipeline.source) if pipeline else None,
+            "ended": bool(pipeline.ended) if pipeline else False,
         }
 
     @app.post("/reset")
@@ -124,6 +133,38 @@ def create_app(
             roi=_roi_tuple(body.roi) if body.roi is not None else None,
         )
         return pipeline._state()
+
+    @app.get("/sources")
+    async def sources():
+        cams = await asyncio.to_thread(list_cameras)
+        return {
+            "current": describe(pipeline.source) if pipeline else None,
+            "cameras": cams,
+            "videos": list_videos(),
+        }
+
+    @app.post("/source")
+    async def set_source(body: SourceBody):
+        assert pipeline
+        src: int | str = body.source
+        if isinstance(src, str) and src.isdigit():
+            src = int(src)
+        if isinstance(src, str):
+            video = resolve_video(src)
+            if video is None:
+                return JSONResponse(
+                    {"error": f"Vídeo não está em samples/videos: {src}", "current": describe(pipeline.source)},
+                    status_code=400,
+                )
+            src = str(video)
+        try:
+            await asyncio.to_thread(pipeline.switch_source, src)
+        except RuntimeError as exc:
+            return JSONResponse(
+                {"error": f"Não abriu a fonte: {exc}", "current": describe(pipeline.source)},
+                status_code=409,
+            )
+        return {"current": describe(pipeline.source), "total": pipeline.total}
 
     @app.post("/pause")
     def pause(paused: bool = True):
@@ -211,7 +252,13 @@ async def _broadcast_loop():
     while True:
         if pipeline:
             # run CV step in thread to avoid blocking event loop
-            state = await asyncio.to_thread(pipeline.step)
+            try:
+                state = await asyncio.to_thread(pipeline.step)
+            except Exception:
+                # uma falha num frame nao pode parar a contagem (a tela congelaria sem aviso)
+                traceback.print_exc()
+                await asyncio.sleep(0.5)
+                continue
             dead = []
             payload = json.dumps(state)
             for ws in list(clients):

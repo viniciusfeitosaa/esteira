@@ -22,6 +22,8 @@
   const btnYoloConnect = $("btnYoloConnect");
   const btnPause = $("btnPause");
   const btnReset = $("btnReset");
+  const btnCamera = $("btnCamera");
+  const cameraSelect = $("cameraSelect");
   const btnDrawArea = $("btnDrawArea");
   const btnClearArea = $("btnClearArea");
   const btnTogglePanel = $("btnTogglePanel");
@@ -448,6 +450,15 @@
     fps = Number(state.fps) || fps;
     frameSize = { w: state.frame_w || frameSize.w, h: state.frame_h || frameSize.h };
     paused = !!state.paused;
+    if (state.no_signal && !(lastState && lastState.no_signal)) {
+      setStatus("Câmera sem imagem (tela preta) — abra o app Iriun/iVCam no celular ou escolha outra fonte");
+    } else if (!state.no_signal && lastState && lastState.no_signal) {
+      setStatus("Câmera voltou a enviar imagem");
+    }
+    if (state.ended && !(lastState && lastState.ended)) {
+      setStatus(`Vídeo terminou — total ${totalCount}. Zerar recomeça o vídeo.`);
+    }
+    if (state.source) updateSourceButton(state.source);
     lastState = state;
     updateHud((state.boxes || []).length);
     updateValidation();
@@ -478,6 +489,8 @@
 
   function setConnectedUI(on) {
     btnYoloConnect.textContent = on ? "Desconectar YOLO" : "Conectar YOLO";
+    btnCamera.disabled = !on;
+    if (!on) closeCameraPicker();
     btnPause.disabled = !on;
     btnReset.disabled = !on;
     btnDrawArea.disabled = !on;
@@ -546,6 +559,118 @@
       setStatus(`Falha no WebSocket — o serviço está rodando em ${baseUrl()}?`);
     });
   }
+
+  // ------------------------------------------------------------ fonte (ao vivo / video)
+
+  // opcoes do <select>: "cam:<indice>" ou "vid:<caminho em samples/videos>"
+  const cameraNames = new Map();
+
+  function sourceValue(src) {
+    if (!src) return "";
+    return src.kind === "camera" ? `cam:${src.index}` : `vid:${src.path}`;
+  }
+
+  function sourceLabel(src) {
+    if (!src) return "Fonte";
+    if (src.kind === "camera") {
+      return `Ao vivo: ${cameraNames.get(src.index) || `câmera ${src.index}`}`;
+    }
+    return `Vídeo: ${src.name}`;
+  }
+
+  function updateSourceButton(src) {
+    btnCamera.textContent = `${sourceLabel(src)} ▾`;
+  }
+
+  function closeCameraPicker() {
+    cameraSelect.hidden = true;
+    btnCamera.setAttribute("aria-expanded", "false");
+  }
+
+  function optionGroup(label, items) {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    for (const [value, text] of items) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      group.append(opt);
+    }
+    return group;
+  }
+
+  async function openCameraPicker() {
+    btnCamera.disabled = true;
+    setStatus("Procurando câmeras e vídeos…");
+    try {
+      const res = await fetch(`${baseUrl()}/sources`, { cache: "no-store" });
+      const data = await res.json();
+      const cams = data.cameras || [];
+      const videos = data.videos || [];
+      cameraNames.clear();
+      for (const c of cams) cameraNames.set(c.index, c.name);
+      const groups = [];
+      if (cams.length) {
+        groups.push(optionGroup("Ao vivo (câmeras do PC)", cams.map((c) => [`cam:${c.index}`, c.name])));
+      }
+      if (videos.length) {
+        groups.push(optionGroup("Vídeos de teste", videos.map((v) => [`vid:${v.path}`, v.name])));
+      }
+      cameraSelect.replaceChildren(...groups);
+      cameraSelect.value = sourceValue(data.current);
+      updateSourceButton(data.current);
+      cameraSelect.hidden = false;
+      btnCamera.setAttribute("aria-expanded", "true");
+      cameraSelect.focus();
+      setStatus(groups.length ? "Escolha uma câmera (ao vivo) ou um vídeo de teste" : "Nenhuma fonte encontrada");
+    } catch {
+      setStatus("Não foi possível listar as fontes do serviço");
+    } finally {
+      btnCamera.disabled = !connected;
+    }
+  }
+
+  async function switchSource(value) {
+    const isVideo = value.startsWith("vid:");
+    const raw = value.slice(4);
+    const label = cameraSelect.selectedOptions[0]?.textContent || raw;
+    cameraSelect.disabled = true;
+    setStatus(`Abrindo ${label}…`);
+    try {
+      const res = await fetch(`${baseUrl()}/source`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: isVideo ? raw : Number(raw) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStatus(data.error || "Falha ao trocar de fonte");
+        cameraSelect.value = sourceValue(data.current);
+        return;
+      }
+      if (isVideo) {
+        totalCount = 0;
+        lastDisplayCount = 0;
+        countEvents = [];
+        sessionStart = performance.now();
+      }
+      updateSourceButton(data.current);
+      setStatus(isVideo ? `Vídeo de teste: ${label} — contando do início` : `Ao vivo: ${label}`);
+      closeCameraPicker();
+    } catch {
+      setStatus("Falha ao trocar de fonte");
+    } finally {
+      cameraSelect.disabled = false;
+    }
+  }
+
+  btnCamera.addEventListener("click", () => {
+    if (cameraSelect.hidden) openCameraPicker();
+    else closeCameraPicker();
+  });
+  cameraSelect.addEventListener("change", () => {
+    if (cameraSelect.value) switchSource(cameraSelect.value);
+  });
 
   // ------------------------------------------------------------ eventos
 

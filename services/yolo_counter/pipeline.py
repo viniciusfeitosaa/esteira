@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any, Optional
 
@@ -10,6 +11,7 @@ import numpy as np
 from ultralytics import YOLO
 
 from .belt_roi import crop_belt_bgr
+from .sources import camera_backend, describe, is_camera
 from .centroid_track import CentroidTracker
 from .line_count import LineCounter, TrackBox
 
@@ -57,10 +59,19 @@ class YoloCountPipeline:
         self.frame_stride = frame_stride if frame_stride is not None else (2 if lite else 1)
         self._stride_i = 0
         self.jpeg_quality = 55 if lite else 80
+        # step() roda numa thread do servidor; a troca de camera nao pode cair no meio dele
+        self._lock = threading.Lock()
+        # video de teste chegou ao fim: segura o ultimo frame e o total para comparar com o gabarito
+        self.ended = False
+        self.no_signal = False
 
     def open(self) -> None:
-        src = int(self.source) if str(self.source).isdigit() else self.source
-        self._cap = cv2.VideoCapture(src)
+        self.ended = False
+        self.no_signal = False
+        if is_camera(self.source):
+            self._cap = cv2.VideoCapture(int(self.source), camera_backend())
+        else:
+            self._cap = cv2.VideoCapture(self.source)
         if not self._cap.isOpened():
             raise RuntimeError(f"Nao abriu fonte: {self.source}")
         if self.lite and str(self.source).isdigit():
@@ -74,10 +85,46 @@ class YoloCountPipeline:
             self._cap.release()
             self._cap = None
 
+    def switch_source(self, source: str | int) -> None:
+        """Troca camera/video sem reiniciar; volta para a anterior se a nova nao abrir.
+
+        Camera -> camera mantem o total. Video sempre comeca do inicio com total zerado.
+        """
+        with self._lock:
+            previous = self.source
+            self.close()
+            self.source = source
+            try:
+                self.open()
+                ok, _ = self._cap.read() if self._cap else (False, None)
+                if not ok:
+                    raise RuntimeError(f"Fonte sem imagem: {source}")
+                if not is_camera(source):
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            except RuntimeError:
+                self.close()
+                self.source = previous
+                self.open()
+                raise
+            # posicoes/IDs da fonte antiga nao valem para a nova
+            self.tracker.reset()
+            self.counter.reset()
+            if not is_camera(source) or not is_camera(previous):
+                self.total = 0
+            self.last_frame = None
+            self._boxes = []
+            self._stride_i = 0
+
     def reset(self) -> None:
-        self.counter.reset()
-        self.tracker.reset()
-        self.total = 0
+        with self._lock:
+            self.counter.reset()
+            self.tracker.reset()
+            self.total = 0
+            # zerar num video de teste recomeca o video
+            if self._cap is not None and not is_camera(self.source):
+                self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                self.ended = False
+                self._stride_i = 0
 
     def set_config(
         self,
@@ -96,22 +143,27 @@ class YoloCountPipeline:
             self.conf = float(conf)
 
     def step(self) -> dict[str, Any]:
+        with self._lock:
+            return self._step()
+
+    def _step(self) -> dict[str, Any]:
         if not self._cap:
             self.open()
         assert self._cap is not None
 
-        if self.paused:
+        if self.paused or self.ended:
             return self._state()
 
         ok, frame = self._cap.read()
         if not ok or frame is None:
-            self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            ok, frame = self._cap.read()
-            if not ok or frame is None:
-                return self._state()
+            if not is_camera(self.source):
+                self.ended = True
+            return self._state()
 
         self.last_frame = frame
         self.frame_h, self.frame_w = frame.shape[:2]
+        # Iriun/iVCam sem o app do celular conectado entregam uma tela preta com aviso
+        self.no_signal = float(frame[::8, ::8].mean()) < 8
 
         # lite: processa 1 de N frames (ainda avanca tracking menos vezes)
         self._stride_i += 1
@@ -217,4 +269,7 @@ class YoloCountPipeline:
             "imgsz": self.imgsz,
             "roi": list(self.roi) if self.roi else None,
             "conf": self.conf,
+            "source": describe(self.source),
+            "ended": self.ended,
+            "no_signal": self.no_signal,
         }

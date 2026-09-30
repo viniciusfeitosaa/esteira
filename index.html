@@ -29,6 +29,10 @@
         </div>
 
         <div class="toolbar" id="toolbar">
+          <div class="camera-picker">
+            <button type="button" class="btn small" id="btnCamera" disabled aria-expanded="false">Fonte ▾</button>
+            <select id="cameraSelect" aria-label="Câmera ao vivo ou vídeo de teste usado pelo YOLO" hidden></select>
+          </div>
           <button type="button" class="btn small" id="btnDrawArea" disabled>Desenhar área de contagem</button>
           <button type="button" class="btn small" id="btnClearArea" disabled>Usar imagem inteira</button>
           <label class="check">
@@ -121,7 +125,8 @@
         </div>
         <p class="tip">
           No PC: <code>py -3.12 scripts/run_yolo_service.py --source 0</code>
-          (ou <code>scripts\run_lite.bat</code> no notebook de 8 GB). Meta de lote: erro ≤ 0,5% (N ≥ 200).
+          (ou <code>scripts\run_lite.bat</code> no notebook de 8 GB). Depois, o botão
+          <strong>Fonte</strong> abaixo do vídeo alterna entre câmera ao vivo e vídeos de teste. Meta de lote: erro ≤ 0,5% (N ≥ 200).
         </p>
       </div>
     </section>
