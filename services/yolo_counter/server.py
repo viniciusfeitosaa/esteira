@@ -23,12 +23,22 @@ DEFAULT_FALLBACK = "yolov8n.pt"
 pipeline: Optional[YoloCountPipeline] = None
 clients: set[WebSocket] = set()
 _broadcast_task: Optional[asyncio.Task] = None
+_broadcast_interval = 0.03
+_jpeg_quality = 80
 
 
 class ConfigBody(BaseModel):
     direction: Optional[str] = None
     line_pos: Optional[float] = Field(default=None, ge=0.05, le=0.95)
     conf: Optional[float] = Field(default=None, ge=0.05, le=0.95)
+    roi: Optional[list[float]] = Field(default=None, min_length=4, max_length=4)
+
+
+def _roi_tuple(v: Any) -> Optional[tuple[float, float, float, float]]:
+    if not v or len(v) != 4:
+        return None
+    x0, y0, x1, y1 = (min(1.0, max(0.0, float(q))) for q in v)
+    return (x0, y0, x1, y1)
 
 
 def resolve_model(path: Optional[str]) -> tuple[str, Optional[str]]:
@@ -44,13 +54,18 @@ def resolve_model(path: Optional[str]) -> tuple[str, Optional[str]]:
 def create_app(
     source: str | int = 0,
     model: Optional[str] = None,
-    direction: str = "btt",
-    line_pos: float = 0.55,
-    conf: float = 0.22,
+    direction: str = "rtl",
+    line_pos: float = 0.5,
+    conf: float = 0.3,
+    lite: bool = False,
+    roi: Optional[tuple[float, float, float, float]] = None,
+    crop_belt: bool = False,
 ) -> FastAPI:
-    global pipeline
+    global pipeline, _broadcast_interval, _jpeg_quality
 
     model_path, warning = resolve_model(model)
+    _broadcast_interval = 0.08 if lite else 0.03
+    _jpeg_quality = 55 if lite else 80
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -61,6 +76,9 @@ def create_app(
             direction=direction,
             line_pos=line_pos,
             conf=conf,
+            lite=lite,
+            roi=roi,
+            crop_belt=crop_belt,
         )
         pipeline.model_warning = warning
         pipeline.open()
@@ -86,6 +104,8 @@ def create_app(
             "total": pipeline.total if pipeline else 0,
             "model": model_path,
             "warning": warning,
+            "lite": bool(pipeline.lite) if pipeline else lite,
+            "imgsz": pipeline.imgsz if pipeline else None,
         }
 
     @app.post("/reset")
@@ -101,6 +121,7 @@ def create_app(
             direction=body.direction,
             line_pos=body.line_pos,
             conf=body.conf,
+            roi=_roi_tuple(body.roi) if body.roi is not None else None,
         )
         return pipeline._state()
 
@@ -111,11 +132,16 @@ def create_app(
         return {"paused": pipeline.paused}
 
     @app.get("/frame.jpg")
-    def frame_jpg():
+    def frame_jpg(raw: bool = False):
         assert pipeline
         if pipeline.last_frame is None:
             return Response(status_code=404)
         frame = pipeline.last_frame.copy()
+        if raw:
+            ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _jpeg_quality])
+            if not ok:
+                return Response(status_code=500)
+            return Response(content=buf.tobytes(), media_type="image/jpeg")
         # draw line
         h, w = frame.shape[:2]
         pos = pipeline.counter.line_pos
@@ -125,6 +151,11 @@ def create_app(
         else:
             y = int(h * pos)
             cv2.line(frame, (0, y), (w, y), (0, 220, 255), 2)
+        if pipeline.roi:
+            fx0, fy0, fx1, fy1 = pipeline.roi
+            cv2.rectangle(
+                frame, (int(fx0 * w), int(fy0 * h)), (int(fx1 * w), int(fy1 * h)), (255, 160, 0), 1
+            )
         for b in pipeline._boxes:
             x1, y1, x2, y2 = map(int, (b["x1"], b["y1"], b["x2"], b["y2"]))
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 80), 2)
@@ -137,7 +168,9 @@ def create_app(
                 (255, 255, 255),
                 1,
             )
-        ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+        ok, buf = cv2.imencode(
+            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _jpeg_quality]
+        )
         if not ok:
             return Response(status_code=500)
         return Response(content=buf.tobytes(), media_type="image/jpeg")
@@ -162,6 +195,7 @@ def create_app(
                         direction=msg.get("direction"),
                         line_pos=msg.get("line_pos"),
                         conf=msg.get("conf"),
+                        roi=_roi_tuple(msg.get("roi")),
                     )
                 elif msg.get("type") == "pause" and pipeline:
                     pipeline.paused = bool(msg.get("paused", True))
@@ -187,4 +221,4 @@ async def _broadcast_loop():
                     dead.append(ws)
             for ws in dead:
                 clients.discard(ws)
-        await asyncio.sleep(0.03)
+        await asyncio.sleep(_broadcast_interval)

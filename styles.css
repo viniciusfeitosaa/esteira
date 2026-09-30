@@ -99,11 +99,10 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 9;
   min-height: 240px;
 }
 
-video,
 .yolo-frame,
 #overlay {
   position: absolute;
@@ -117,6 +116,52 @@ video,
 
 #overlay {
   pointer-events: none;
+  touch-action: none;
+  background: transparent;
+}
+
+.panel-body[hidden] {
+  display: none;
+}
+
+.viewport.connected #overlay {
+  pointer-events: auto;
+}
+
+.viewport.drawing #overlay {
+  cursor: crosshair;
+}
+
+.viewport.grab-line.grab-vertical #overlay {
+  cursor: ew-resize;
+}
+
+.viewport.grab-line:not(.grab-vertical) #overlay {
+  cursor: ns-resize;
+}
+
+.stage-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.btn.small {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.viewport.drawing + .toolbar #btnDrawArea {
+  border-color: #ff9f1c;
+  color: #ffcf8a;
 }
 
 .validation {
@@ -167,19 +212,10 @@ video,
   color: #ffb4b4;
 }
 
-body.engine-yolo .classic-only,
-body.engine-classic .yolo-only {
-  display: none !important;
-}
-
 .tip code {
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--ink);
-}
-
-.offscreen {
-  display: none;
 }
 
 .viewport-hint {
@@ -412,7 +448,6 @@ select {
 
 @media (max-width: 600px) {
   .viewport {
-    aspect-ratio: 3 / 4;
     max-height: 52dvh;
   }
 

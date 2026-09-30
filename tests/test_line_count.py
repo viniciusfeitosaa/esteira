@@ -27,3 +27,19 @@ def test_rtl_crossing():
     c = LineCounter(direction="rtl", line_pos=0.5)
     assert c.count_frame([TrackBox(2, 120, 40)], 200, 100) == 0
     assert c.count_frame([TrackBox(2, 90, 40)], 200, 100) == 1
+
+
+def test_counts_crossing_hidden_by_short_gap():
+    c = LineCounter(direction="rtl", line_pos=0.5, keep_lost=5)
+    assert c.count_frame([TrackBox(3, 110, 40)], 200, 100) == 0
+    for _ in range(3):
+        assert c.count_frame([], 200, 100) == 0
+    assert c.count_frame([TrackBox(3, 85, 40)], 200, 100) == 1
+
+
+def test_forgets_after_long_gap():
+    c = LineCounter(direction="rtl", line_pos=0.5, keep_lost=2)
+    c.count_frame([TrackBox(4, 110, 40)], 200, 100)
+    for _ in range(3):
+        c.count_frame([], 200, 100)
+    assert c.count_frame([TrackBox(4, 85, 40)], 200, 100) == 0

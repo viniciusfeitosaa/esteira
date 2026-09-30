@@ -1,567 +1,147 @@
-import {
-  assessDoubt,
-  blobStats,
-  resolveCrossingCount,
-  resolveCrossingCountAsync,
-  stubArbitrate,
-} from "./assist.mjs";
-import { createYoloAssist } from "./yolo-assist.mjs";
-
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "esteira-calib-v6";
+  const STORAGE_KEY = "esteira-yolo-v1";
   const MAX_LOT_ERROR = 0.005;
+  const LINE_GRAB_PX = 16;
+  const MIN_AREA_FRAC = 0.03;
 
-  const video = document.getElementById("video");
-  const yoloFrame = document.getElementById("yoloFrame");
-  const overlay = document.getElementById("overlay");
-  const processCanvas = document.getElementById("process");
-  const viewport = document.getElementById("viewport");
-  const statusText = document.getElementById("statusText");
-  const countValue = document.getElementById("countValue");
-  const visibleValue = document.getElementById("visibleValue");
-  const rateValue = document.getElementById("rateValue");
-  const fpsValue = document.getElementById("fpsValue");
-  const sessionValue = document.getElementById("sessionValue");
-  const thresholdTitle = document.getElementById("thresholdTitle");
-  const expectedLotEl = document.getElementById("expectedLot");
-  const errorPctValue = document.getElementById("errorPctValue");
-  const validationBadge = document.getElementById("validationBadge");
-  const viewportHint = document.getElementById("viewportHint");
+  const $ = (id) => document.getElementById(id);
+  const yoloFrame = $("yoloFrame");
+  const overlay = $("overlay");
+  const viewport = $("viewport");
+  const statusText = $("statusText");
+  const countValue = $("countValue");
+  const visibleValue = $("visibleValue");
+  const rateValue = $("rateValue");
+  const fpsValue = $("fpsValue");
+  const sessionValue = $("sessionValue");
+  const expectedLotEl = $("expectedLot");
+  const errorPctValue = $("errorPctValue");
+  const validationBadge = $("validationBadge");
+  const btnYoloConnect = $("btnYoloConnect");
+  const btnPause = $("btnPause");
+  const btnReset = $("btnReset");
+  const btnDrawArea = $("btnDrawArea");
+  const btnClearArea = $("btnClearArea");
+  const btnTogglePanel = $("btnTogglePanel");
+  const panelBody = $("panelBody");
+  const btnSaveCfg = $("btnSaveCfg");
+  const btnLoadCfg = $("btnLoadCfg");
+  const yoloServiceUrlEl = $("yoloServiceUrl");
+  const directionEl = $("direction");
+  const linePosEl = $("linePos");
+  const linePosLabel = $("linePosLabel");
+  const confEl = $("conf");
+  const confLabel = $("confLabel");
+  const showConfEl = $("showConf");
+  const dimOutsideEl = $("dimOutside");
+  const editHint = $("editHint");
 
-  const btnStart = document.getElementById("btnStart");
-  const btnYoloConnect = document.getElementById("btnYoloConnect");
-  const btnPause = document.getElementById("btnPause");
-  const btnSnap = document.getElementById("btnSnap");
-  const btnAssistCheck = document.getElementById("btnAssistCheck");
-  const btnReset = document.getElementById("btnReset");
-  const btnTogglePanel = document.getElementById("btnTogglePanel");
-  const btnSaveCfg = document.getElementById("btnSaveCfg");
-  const btnLoadCfg = document.getElementById("btnLoadCfg");
-  const btnSaveCfgYolo = document.getElementById("btnSaveCfgYolo");
-  const btnLoadCfgYolo = document.getElementById("btnLoadCfgYolo");
-  const btnAuto = document.getElementById("btnAuto");
-  const panelBody = document.getElementById("panelBody");
+  const octx = overlay.getContext("2d");
 
-  const engineModeEl = document.getElementById("engineMode");
-  const yoloServiceUrlEl = document.getElementById("yoloServiceUrl");
-  const countModeEl = document.getElementById("countMode");
-  const assistModeEl = document.getElementById("assistMode");
-  const modeEl = document.getElementById("mode");
-  const thresholdEl = document.getElementById("threshold");
-  const minAreaEl = document.getElementById("minArea");
-  const maxAreaEl = document.getElementById("maxArea");
-  const linePosEl = document.getElementById("linePos");
-  const roiEl = document.getElementById("roi");
-  const matchDistEl = document.getElementById("matchDist");
-  const morphEl = document.getElementById("morph");
-  const invertEl = document.getElementById("invert");
-  const showMaskEl = document.getElementById("showMask");
-  const showRoiEl = document.getElementById("showRoi");
-  const directionEl = document.getElementById("direction");
-
-  const thresholdLabel = document.getElementById("thresholdLabel");
-  const minAreaLabel = document.getElementById("minAreaLabel");
-  const maxAreaLabel = document.getElementById("maxAreaLabel");
-  const linePosLabel = document.getElementById("linePosLabel");
-  const roiLabel = document.getElementById("roiLabel");
-  const matchDistLabel = document.getElementById("matchDistLabel");
-  const morphLabel = document.getElementById("morphLabel");
-
-  const octx = overlay.getContext("2d", { alpha: true });
-  const pctx = processCanvas.getContext("2d", {
-    willReadFrequently: true,
-    alpha: false,
-  });
-
-  /** Processamento em res. reduzida (performance no celular) */
-  const PROC_W = 360;
-
-  let stream = null;
-  let running = false;
-  let counting = false;
-  let totalCount = 0;
-  let tracks = [];
-  let nextTrackId = 1;
-  let rafId = 0;
-  let lastTs = 0;
-  let fpsEma = 0;
-  let procH = 200;
-  let sessionStart = 0;
-  let countEvents = [];
-  let lastDisplayCount = 0;
-
-  /** Último frame de luminância (para Auto calibrar) */
-  let lastLum = null;
-  let lastRoi = null;
-  let lastProc = { w: PROC_W, h: 200 };
-
-  let lastVisibleBlobs = 0;
-  let lastBlobList = [];
-  let lastFrameRgb = null;
-  let hintCooldown = 0;
-  let lastMedianArea = 0;
-  let assistBusy = false;
-  let yoloAssist = null;
-  let yoloReady = false;
-  let yoloWs = null;
-  let yoloConnected = false;
-  let yoloPaused = false;
-  let yoloFrameTimer = 0;
-  let yoloLastBoxes = [];
-  let yoloFrameSize = { w: 640, h: 480 };
-  let expectedLot = 200;
-
-  const cfg = {
-    engineMode: "yolo",
+  const DEFAULTS = {
     yoloServiceUrl: "http://localhost:8765",
-    countMode: "belt",
-    assistMode: "off",
-    mode: "contrast",
-    threshold: 38,
-    minArea: 25,
-    maxArea: 2500,
+    direction: "rtl",
     linePos: 0.5,
-    roi: 0.55,
-    matchDist: 36,
-    morph: 1,
-    invert: false,
-    showMask: false,
-    showRoi: true,
-    direction: "ltr",
+    conf: 0.3,
+    roi: null, // [x0, y0, x1, y1] em fracoes do frame; null = imagem inteira
+    showConf: true,
+    dimOutside: true,
+    expectedLot: 200,
   };
+  const cfg = { ...DEFAULTS };
+
+  let ws = null;
+  let connected = false;
+  let paused = false;
+  let lastState = null;
+  let frameSize = { w: 640, h: 480 };
+  let totalCount = 0;
+  let lastDisplayCount = 0;
+  let countEvents = [];
+  let sessionStart = 0;
+  let fps = 0;
+  let frameLoop = 0;
+
+  let drawMode = false;
+  let dragRect = null; // {x0,y0,x1,y1} em fracoes, durante o desenho
+  let draggingLine = false;
+
+  // ------------------------------------------------------------ config
+
+  function isVertical() {
+    return cfg.direction === "ltr" || cfg.direction === "rtl";
+  }
+
+  function roiOrFull() {
+    return cfg.roi || [0, 0, 1, 1];
+  }
+
+  function clampLineToRoi() {
+    const [x0, y0, x1, y1] = roiOrFull();
+    const lo = isVertical() ? x0 : y0;
+    const hi = isVertical() ? x1 : y1;
+    const pad = (hi - lo) * 0.05;
+    if (cfg.linePos < lo + pad || cfg.linePos > hi - pad) cfg.linePos = (lo + hi) / 2;
+  }
 
   function applyCfgToDOM() {
-    if (engineModeEl) engineModeEl.value = cfg.engineMode || "yolo";
-    if (yoloServiceUrlEl) {
-      yoloServiceUrlEl.value = cfg.yoloServiceUrl || "http://localhost:8765";
-    }
-    countModeEl.value = cfg.countMode || "belt";
-    assistModeEl.value = cfg.assistMode || "off";
-    modeEl.value = cfg.mode;
-    thresholdEl.value = String(cfg.threshold);
-    minAreaEl.value = String(cfg.minArea);
-    maxAreaEl.value = String(cfg.maxArea);
-    linePosEl.value = String(Math.round(cfg.linePos * 100));
-    roiEl.value = String(Math.round(cfg.roi * 100));
-    matchDistEl.value = String(cfg.matchDist);
-    morphEl.value = String(cfg.morph);
-    invertEl.checked = cfg.invert;
-    showMaskEl.checked = cfg.showMask;
-    showRoiEl.checked = cfg.showRoi;
+    yoloServiceUrlEl.value = cfg.yoloServiceUrl;
     directionEl.value = cfg.direction;
-    updateThresholdUI();
-    bindLabels();
-    updateEngineUI();
-  }
-
-  function updateThresholdUI() {
-    if (cfg.mode === "absolute") {
-      thresholdEl.min = "20";
-      thresholdEl.max = "250";
-      if (cfg.threshold < 20) cfg.threshold = 120;
-      thresholdEl.value = String(cfg.threshold);
-      thresholdTitle.innerHTML = `Limiar de brilho <em id="thresholdLabel">${cfg.threshold}</em>`;
-    } else if (cfg.mode === "local") {
-      thresholdEl.min = "2";
-      thresholdEl.max = "50";
-      if (cfg.threshold > 50) cfg.threshold = 12;
-      thresholdEl.value = String(cfg.threshold);
-      thresholdTitle.innerHTML = `Sensibilidade local <em id="thresholdLabel">${cfg.threshold}</em>`;
-    } else {
-      thresholdEl.min = "8";
-      thresholdEl.max = "120";
-      if (cfg.threshold > 120) cfg.threshold = 38;
-      thresholdEl.value = String(cfg.threshold);
-      thresholdTitle.innerHTML = `Contraste sobre a esteira <em id="thresholdLabel">${cfg.threshold}</em>`;
-    }
-  }
-
-  function bindLabels() {
-    const thr = document.getElementById("thresholdLabel");
-    if (thr) thr.textContent = String(cfg.threshold);
-    minAreaLabel.textContent = String(cfg.minArea);
-    maxAreaLabel.textContent = String(cfg.maxArea);
-    linePosLabel.textContent = String(Math.round(cfg.linePos * 100));
-    roiLabel.textContent = String(Math.round(cfg.roi * 100));
-    matchDistLabel.textContent = String(cfg.matchDist);
-    morphLabel.textContent = String(cfg.morph);
+    linePosEl.value = String(Math.round(cfg.linePos * 100));
+    linePosLabel.textContent = linePosEl.value;
+    confEl.value = String(Math.round(cfg.conf * 100));
+    confLabel.textContent = confEl.value;
+    showConfEl.checked = cfg.showConf;
+    dimOutsideEl.checked = cfg.dimOutside;
+    expectedLotEl.value = String(cfg.expectedLot);
   }
 
   function readControls() {
-    cfg.engineMode = engineModeEl ? engineModeEl.value : "yolo";
-    if (yoloServiceUrlEl) cfg.yoloServiceUrl = yoloServiceUrlEl.value.trim();
-    cfg.countMode = countModeEl.value;
-    cfg.assistMode = assistModeEl.value;
-    cfg.mode = modeEl.value;
-    cfg.threshold = Number(thresholdEl.value);
-    cfg.minArea = Number(minAreaEl.value);
-    cfg.maxArea = Number(maxAreaEl.value);
-    cfg.linePos = Number(linePosEl.value) / 100;
-    cfg.roi = Number(roiEl.value) / 100;
-    cfg.matchDist = Number(matchDistEl.value);
-    cfg.morph = Number(morphEl.value);
-    cfg.invert = invertEl.checked;
-    cfg.showMask = showMaskEl.checked;
-    cfg.showRoi = showRoiEl.checked;
+    cfg.yoloServiceUrl = yoloServiceUrlEl.value.trim() || DEFAULTS.yoloServiceUrl;
     cfg.direction = directionEl.value;
-    if (expectedLotEl) expectedLot = Math.max(1, Number(expectedLotEl.value) || 200);
-    if (cfg.minArea > cfg.maxArea) {
-      cfg.maxArea = cfg.minArea;
-      maxAreaEl.value = String(cfg.maxArea);
-    }
-    bindLabels();
-    updateCountModeUI();
-    updateEngineUI();
-    if (yoloConnected) pushYoloConfig();
-    updateValidation();
+    cfg.linePos = Number(linePosEl.value) / 100;
+    cfg.conf = Number(confEl.value) / 100;
+    cfg.showConf = showConfEl.checked;
+    cfg.dimOutside = dimOutsideEl.checked;
+    cfg.expectedLot = Math.max(1, Number(expectedLotEl.value) || 200);
+    linePosLabel.textContent = linePosEl.value;
+    confLabel.textContent = confEl.value;
   }
 
-  function updateEngineUI() {
-    const yolo = (cfg.engineMode || "yolo") === "yolo";
-    document.body.classList.toggle("engine-yolo", yolo);
-    document.body.classList.toggle("engine-classic", !yolo);
-    if (btnYoloConnect) btnYoloConnect.hidden = !yolo;
-    if (btnStart) btnStart.hidden = yolo;
-    if (yoloFrame) yoloFrame.hidden = !yolo || !yoloConnected;
-    video.hidden = yolo;
-    if (viewportHint) {
-      viewportHint.innerHTML = yolo
-        ? 'Motor principal: <strong>YOLO no PC</strong>. Suba o serviço e toque em <strong>Conectar YOLO</strong>.'
-        : 'Toque em <strong>Iniciar câmera</strong> (fallback clássico no browser).';
-    }
-    const counterLabel = document.querySelector(".counter-label");
-    if (counterLabel && yolo) counterLabel.textContent = "Total contado";
-  }
-
-  function updateCountModeUI() {
-    const instant = cfg.countMode === "instant";
-    const classic = cfg.engineMode === "classic";
-    if (btnSnap) {
-      btnSnap.style.display = classic && instant ? "" : "none";
-      btnSnap.hidden = !(classic && instant);
-    }
-    if (btnAssistCheck) {
-      const showAssistBtn = classic && instant && cfg.assistMode === "doubt";
-      btnAssistCheck.hidden = !showAssistBtn;
-      btnAssistCheck.style.display = showAssistBtn ? "" : "none";
-    }
-    const counterLabel = document.querySelector(".counter-label");
-    if (counterLabel && classic) {
-      counterLabel.textContent = instant ? "Objetos na tela" : "Total contado";
-    }
-  }
-
-  function updateValidation() {
-    if (!errorPctValue || !validationBadge) return;
-    const n = expectedLot;
-    if (!n || n <= 0) {
-      errorPctValue.textContent = "—";
-      validationBadge.textContent = "—";
-      validationBadge.dataset.state = "idle";
-      return;
-    }
-    const err = Math.abs(totalCount - n) / n;
-    errorPctValue.textContent = `${(err * 100).toFixed(2)}%`;
-    const pass = err <= MAX_LOT_ERROR;
-    validationBadge.textContent = pass ? "PASS" : "FAIL";
-    validationBadge.dataset.state = pass ? "pass" : "fail";
-  }
-
-  function yoloBaseUrl() {
-    return (cfg.yoloServiceUrl || "http://localhost:8765").replace(/\/$/, "");
-  }
-
-  function yoloWsUrl() {
-    const u = new URL(yoloBaseUrl());
-    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-    u.pathname = "/ws";
-    u.search = "";
-    u.hash = "";
-    return u.toString();
-  }
-
-  function pushYoloConfig() {
-    if (!yoloWs || yoloWs.readyState !== WebSocket.OPEN) return;
-    yoloWs.send(
+  function pushConfig() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(
       JSON.stringify({
         type: "config",
         direction: cfg.direction,
         line_pos: cfg.linePos,
-        conf: 0.35,
+        conf: cfg.conf,
+        roi: roiOrFull(),
       })
     );
   }
 
-  function drawYoloOverlay(state) {
-    const rect = viewport.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = Math.max(1, rect.width);
-    const cssH = Math.max(1, rect.height);
-    if (overlay.width !== Math.round(cssW * dpr) || overlay.height !== Math.round(cssH * dpr)) {
-      overlay.width = Math.round(cssW * dpr);
-      overlay.height = Math.round(cssH * dpr);
-      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    octx.clearRect(0, 0, cssW, cssH);
-    const fw = state.frame_w || yoloFrameSize.w;
-    const fh = state.frame_h || yoloFrameSize.h;
-    const map = containMap(fw, fh, cssW, cssH);
-    const boxes = state.boxes || [];
-    yoloLastBoxes = boxes;
-    octx.strokeStyle = "#3ecf8e";
-    octx.lineWidth = 2;
-    octx.font = "12px ui-monospace, monospace";
-    octx.fillStyle = "#e8f0ea";
-    for (const b of boxes) {
-      const x = map.offsetX + b.x1 * map.scaleX;
-      const y = map.offsetY + b.y1 * map.scaleY;
-      const w = (b.x2 - b.x1) * map.scaleX;
-      const h = (b.y2 - b.y1) * map.scaleY;
-      octx.strokeRect(x, y, w, h);
-      octx.fillText(String(b.id), x + 2, Math.max(12, y - 4));
-    }
-    const pos = state.line_pos ?? cfg.linePos;
-    const dir = state.direction || cfg.direction;
-    octx.strokeStyle = "#f2d45c";
-    octx.lineWidth = 2;
-    octx.beginPath();
-    if (dir === "ltr" || dir === "rtl") {
-      const x = map.offsetX + fw * pos * map.scaleX;
-      octx.moveTo(x, map.offsetY);
-      octx.lineTo(x, map.offsetY + fh * map.scaleY);
-    } else {
-      const y = map.offsetY + fh * pos * map.scaleY;
-      octx.moveTo(map.offsetX, y);
-      octx.lineTo(map.offsetX + fw * map.scaleX, y);
-    }
-    octx.stroke();
-  }
-
-  function onYoloState(state) {
-    if (!state || state.type !== "state") return;
-    const prev = totalCount;
-    totalCount = Number(state.total) || 0;
-    if (totalCount > prev) {
-      for (let i = 0; i < totalCount - prev; i++) countEvents.push(performance.now());
-    }
-    fpsEma = Number(state.fps) || fpsEma;
-    yoloFrameSize = { w: state.frame_w || 640, h: state.frame_h || 480 };
-    yoloPaused = !!state.paused;
-    if (!sessionStart && yoloConnected && !yoloPaused) sessionStart = performance.now();
-    const visible = (state.boxes || []).length;
-    updateHud(visible);
-    updateValidation();
-    drawYoloOverlay(state);
-    if (state.model_warning) {
-      setStatus(`YOLO: ${state.model_warning}`);
-    }
-  }
-
-  async function pollYoloFrame() {
-    if (!yoloConnected) return;
-    try {
-      const res = await fetch(`${yoloBaseUrl()}/frame.jpg?t=${Date.now()}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const prev = yoloFrame.src;
-      yoloFrame.src = url;
-      yoloFrame.hidden = false;
-      viewport.classList.add("live");
-      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
-    } catch {
-      /* ignore transient */
-    }
-  }
-
-  function disconnectYolo() {
-    yoloConnected = false;
-    if (yoloWs) {
-      try {
-        yoloWs.close();
-      } catch {
-        /* ignore */
-      }
-      yoloWs = null;
-    }
-    if (yoloFrameTimer) {
-      clearInterval(yoloFrameTimer);
-      yoloFrameTimer = 0;
-    }
-    if (yoloFrame.src && yoloFrame.src.startsWith("blob:")) {
-      URL.revokeObjectURL(yoloFrame.src);
-    }
-    yoloFrame.removeAttribute("src");
-    yoloFrame.hidden = true;
-    viewport.classList.remove("live");
-    octx.clearRect(0, 0, overlay.width, overlay.height);
-    sessionStart = 0;
-    btnPause.disabled = true;
-    btnReset.disabled = true;
-    btnYoloConnect.textContent = "Conectar YOLO";
-    btnPause.textContent = "Pausar contagem";
-    setStatus("YOLO desconectado");
-    updateHud(0);
-    updateValidation();
-  }
-
-  function connectYolo() {
-    readControls();
-    if (yoloConnected) {
-      disconnectYolo();
-      return;
-    }
-    if (stream) stopCamera();
-    setStatus("Conectando ao serviço YOLO…");
-    try {
-      yoloWs = new WebSocket(yoloWsUrl());
-    } catch (err) {
-      console.error(err);
-      setStatus("URL WebSocket inválida");
-      return;
-    }
-    yoloWs.addEventListener("open", () => {
-      yoloConnected = true;
-      btnYoloConnect.textContent = "Desconectar YOLO";
-      btnPause.disabled = false;
-      btnReset.disabled = false;
-      sessionStart = performance.now();
-      pushYoloConfig();
-      setStatus("YOLO conectado — contando no PC");
-      yoloFrameTimer = setInterval(pollYoloFrame, 200);
-      pollYoloFrame();
-    });
-    yoloWs.addEventListener("message", (ev) => {
-      try {
-        onYoloState(JSON.parse(ev.data));
-      } catch {
-        /* ignore */
-      }
-    });
-    yoloWs.addEventListener("close", () => {
-      if (yoloConnected) disconnectYolo();
-    });
-    yoloWs.addEventListener("error", () => {
-      setStatus("Falha no WebSocket — serviço rodando em :8765?");
-    });
-  }
-
-  function saveCfg() {
-    readControls();
+  function saveCfg(silent = false) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-      setStatus("Calibração salva");
+      if (!silent) setStatus("Configuração salva neste navegador");
     } catch {
-      setStatus("Não foi possível salvar");
+      if (!silent) setStatus("Não foi possível salvar");
     }
   }
 
-  function loadCfg(silent = false) {
+  function loadCfg() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        if (!silent) setStatus("Nenhuma calibração salva");
-        return false;
-      }
-      Object.assign(cfg, JSON.parse(raw));
-      applyCfgToDOM();
-      if (!silent) setStatus("Calibração restaurada");
-      return true;
+      if (raw) Object.assign(cfg, JSON.parse(raw));
     } catch {
-      if (!silent) setStatus("Falha ao ler calibração");
-      return false;
+      /* config corrompida: fica o padrao */
     }
   }
 
-  modeEl.addEventListener("change", () => {
-    cfg.mode = modeEl.value;
-    updateThresholdUI();
-    readControls();
-  });
-
-  countModeEl.addEventListener("change", () => {
-    readControls();
-    tracks = [];
-    if (cfg.countMode === "instant") {
-      totalCount = lastVisibleBlobs;
-      setStatus(
-        lastVisibleBlobs
-          ? `Instantâneo: ${lastVisibleBlobs} grão(s) visíveis`
-          : "Instantâneo — aponte aos grãos (não precisa cruzar a linha)"
-      );
-    } else {
-      setStatus("Esteira — só conta ao cruzar a linha amarela");
-    }
-    updateHud(lastVisibleBlobs);
-  });
-
-  assistModeEl.addEventListener("change", () => {
-    readControls();
-    if (cfg.assistMode === "doubt") {
-      ensureYoloLoaded();
-      setStatus(
-        yoloReady
-          ? "Assistente: só dúvidas (YOLO ONNX)"
-          : "Assistente: só dúvidas (carregando YOLO… stub se falhar)"
-      );
-    } else {
-      setStatus("Assistente off — só clássico");
-    }
-  });
-
-  if (engineModeEl) {
-    engineModeEl.addEventListener("change", () => {
-      const next = engineModeEl.value;
-      if (next === "classic" && yoloConnected) disconnectYolo();
-      if (next === "yolo" && stream) stopCamera();
-      readControls();
-      setStatus(
-        next === "yolo"
-          ? "Motor YOLO (PC) — conecte o serviço"
-          : "Motor clássico (fallback browser)"
-      );
-    });
-  }
-
-  if (expectedLotEl) {
-    expectedLotEl.addEventListener("input", () => {
-      expectedLot = Math.max(1, Number(expectedLotEl.value) || 200);
-      updateValidation();
-    });
-  }
-
-  async function ensureYoloLoaded() {
-    if (yoloReady) return true;
-    if (!yoloAssist) yoloAssist = createYoloAssist();
-    setStatus("Carregando modelo YOLO (~12 MB)…");
-    const ok = await yoloAssist.load();
-    yoloReady = ok;
-    if (ok) {
-      const st = yoloAssist.getStatus();
-      setStatus(`YOLO pronto (${st.modelUrl})`);
-    } else {
-      setStatus("YOLO indisponível — usando stub");
-    }
-    return ok;
-  }
-
-  [
-    thresholdEl,
-    minAreaEl,
-    maxAreaEl,
-    linePosEl,
-    roiEl,
-    matchDistEl,
-    morphEl,
-    invertEl,
-    showMaskEl,
-    showRoiEl,
-    directionEl,
-  ].forEach((el) => el.addEventListener("input", readControls));
+  // ------------------------------------------------------------ HUD
 
   function setStatus(msg) {
     statusText.textContent = msg;
@@ -569,19 +149,18 @@ import { createYoloAssist } from "./yolo-assist.mjs";
 
   function formatSession(ms) {
     const s = Math.floor(ms / 1000);
-    const m = Math.floor(s / 60);
-    return `${m}:${String(s % 60).padStart(2, "0")}`;
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   }
 
   function ratePerMinute(now) {
-    const windowMs = 60_000;
-    countEvents = countEvents.filter((t) => now - t <= windowMs);
+    countEvents = countEvents.filter((t) => now - t <= 60_000);
     if (countEvents.length < 2) return countEvents.length;
     const span = Math.max(1, now - countEvents[0]);
     return Math.round((countEvents.length * 60_000) / span);
   }
 
-  function updateHud(visible = 0, now = performance.now()) {
+  function updateHud(visible) {
+    const now = performance.now();
     if (totalCount !== lastDisplayCount) {
       countValue.classList.remove("bump");
       void countValue.offsetWidth;
@@ -591,971 +170,425 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     countValue.textContent = String(totalCount);
     visibleValue.textContent = String(visible);
     rateValue.textContent = String(ratePerMinute(now));
-    fpsValue.textContent = fpsEma ? fpsEma.toFixed(0) : "—";
-    if (sessionStart && (counting || yoloConnected)) {
-      sessionValue.textContent = formatSession(now - sessionStart);
-    } else if (!sessionStart) {
-      sessionValue.textContent = "0:00";
-    }
-    updateValidation();
+    fpsValue.textContent = fps ? fps.toFixed(0) : "—";
+    sessionValue.textContent = sessionStart ? formatSession(now - sessionStart) : "0:00";
   }
 
-  function isHorizontal() {
-    return cfg.direction === "ltr" || cfg.direction === "rtl";
+  function updateValidation() {
+    const n = cfg.expectedLot;
+    const err = Math.abs(totalCount - n) / n;
+    errorPctValue.textContent = `${(err * 100).toFixed(2)}%`;
+    const pass = err <= MAX_LOT_ERROR;
+    validationBadge.textContent = pass ? "PASS" : "FAIL";
+    validationBadge.dataset.state = pass ? "pass" : "fail";
   }
 
-  /** Video com object-fit: contain → coordenadas de overlay */
-  function containMap(srcW, srcH, dstW, dstH) {
-    const scale = Math.min(dstW / srcW, dstH / srcH);
-    const dispW = srcW * scale;
-    const dispH = srcH * scale;
-    return {
-      scaleX: scale,
-      scaleY: scale,
-      offsetX: (dstW - dispW) / 2,
-      offsetY: (dstH - dispH) / 2,
-    };
+  // ------------------------------------------------------------ geometria
+
+  function viewMap() {
+    const rect = viewport.getBoundingClientRect();
+    const cssW = Math.max(1, rect.width);
+    const cssH = Math.max(1, rect.height);
+    const scale = Math.min(cssW / frameSize.w, cssH / frameSize.h);
+    const dispW = frameSize.w * scale;
+    const dispH = frameSize.h * scale;
+    return { rect, cssW, cssH, scale, ox: (cssW - dispW) / 2, oy: (cssH - dispH) / 2, dispW, dispH };
   }
 
-  function roiBounds(width, height) {
-    if (isHorizontal()) {
-      const band = height * cfg.roi;
-      const y0 = Math.max(0, Math.floor((height - band) / 2));
-      const y1 = Math.min(height, Math.ceil(y0 + band));
-      return { x0: 0, x1: width, y0, y1 };
-    }
-    const band = width * cfg.roi;
-    const x0 = Math.max(0, Math.floor((width - band) / 2));
-    const x1 = Math.min(width, Math.ceil(x0 + band));
-    return { x0, x1, y0: 0, y1: height };
+  function fracToCss(m, fx, fy) {
+    return [m.ox + fx * m.dispW, m.oy + fy * m.dispH];
   }
 
-  function applyRoi(mask, width, height, roi) {
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (x < roi.x0 || x >= roi.x1 || y < roi.y0 || y >= roi.y1) {
-          mask[y * width + x] = 0;
-        }
-      }
-    }
+  function eventToFrac(ev) {
+    const m = viewMap();
+    const fx = (ev.clientX - m.rect.left - m.ox) / m.dispW;
+    const fy = (ev.clientY - m.rect.top - m.oy) / m.dispH;
+    return [Math.min(1, Math.max(0, fx)), Math.min(1, Math.max(0, fy))];
   }
 
-  function boxBlur(src, width, height, radius) {
-    if (radius <= 0) return src;
-    const tmp = new Float32Array(width * height);
-    const out = new Float32Array(width * height);
-    const r = radius;
-    // horizontal
-    for (let y = 0; y < height; y++) {
-      let sum = 0;
-      for (let x = -r; x <= r; x++) {
-        const xx = Math.min(width - 1, Math.max(0, x));
-        sum += src[y * width + xx];
-      }
-      for (let x = 0; x < width; x++) {
-        tmp[y * width + x] = sum / (2 * r + 1);
-        const xOut = x - r;
-        const xIn = x + r + 1;
-        if (xOut >= 0) sum -= src[y * width + xOut];
-        else sum -= src[y * width];
-        if (xIn < width) sum += src[y * width + xIn];
-        else sum += src[y * width + width - 1];
-      }
+  function nearLine(ev) {
+    const m = viewMap();
+    const [x0, y0, x1, y1] = roiOrFull();
+    const px = ev.clientX - m.rect.left;
+    const py = ev.clientY - m.rect.top;
+    if (isVertical()) {
+      const [lx, ly0] = fracToCss(m, cfg.linePos, y0);
+      const [, ly1] = fracToCss(m, cfg.linePos, y1);
+      return Math.abs(px - lx) <= LINE_GRAB_PX && py >= ly0 - LINE_GRAB_PX && py <= ly1 + LINE_GRAB_PX;
     }
-    // vertical
-    for (let x = 0; x < width; x++) {
-      let sum = 0;
-      for (let y = -r; y <= r; y++) {
-        const yy = Math.min(height - 1, Math.max(0, y));
-        sum += tmp[yy * width + x];
-      }
-      for (let y = 0; y < height; y++) {
-        out[y * width + x] = sum / (2 * r + 1);
-        const yOut = y - r;
-        const yIn = y + r + 1;
-        if (yOut >= 0) sum -= tmp[yOut * width + x];
-        else sum -= tmp[x];
-        if (yIn < height) sum += tmp[yIn * width + x];
-        else sum += tmp[(height - 1) * width + x];
-      }
-    }
-    return out;
+    const [lx0, ly] = fracToCss(m, x0, cfg.linePos);
+    const [lx1] = fracToCss(m, x1, cfg.linePos);
+    return Math.abs(py - ly) <= LINE_GRAB_PX && px >= lx0 - LINE_GRAB_PX && px <= lx1 + LINE_GRAB_PX;
   }
 
-  /** Percentil de luminância na ROI (esteira costuma ser o trecho escuro) */
-  function percentileInRoi(lum, width, height, roi, p) {
-    const samples = [];
-    const step = Math.max(1, Math.floor(((roi.x1 - roi.x0) * (roi.y1 - roi.y0)) / 4000));
-    for (let y = roi.y0; y < roi.y1; y++) {
-      for (let x = roi.x0; x < roi.x1; x += step) {
-        samples.push(lum[y * width + x]);
-      }
+  // ------------------------------------------------------------ desenho
+
+  function render() {
+    const m = viewMap();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(m.cssW * dpr);
+    const h = Math.round(m.cssH * dpr);
+    if (overlay.width !== w || overlay.height !== h) {
+      overlay.width = w;
+      overlay.height = h;
     }
-    if (!samples.length) return 0;
-    samples.sort((a, b) => a - b);
-    const idx = Math.min(samples.length - 1, Math.floor(samples.length * p));
-    return samples[idx];
-  }
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    octx.clearRect(0, 0, m.cssW, m.cssH);
+    if (!connected) return;
 
-  function otsuFromHistogram(hist, total) {
-    if (total <= 0) return 128;
-    let sum = 0;
-    for (let i = 0; i < 256; i++) sum += i * hist[i];
-    let sumB = 0;
-    let wB = 0;
-    let maxVar = -1;
-    let thr = 128;
-    for (let t = 0; t < 256; t++) {
-      wB += hist[t];
-      if (wB === 0) continue;
-      const wF = total - wB;
-      if (wF === 0) break;
-      sumB += t * hist[t];
-      const mB = sumB / wB;
-      const mF = (sum - sumB) / wF;
-      const between = wB * wF * (mB - mF) * (mB - mF);
-      if (between > maxVar) {
-        maxVar = between;
-        thr = t;
-      }
+    const area = dragRect ? [dragRect.x0, dragRect.y0, dragRect.x1, dragRect.y1] : roiOrFull();
+    const [ax0, ay0] = fracToCss(m, Math.min(area[0], area[2]), Math.min(area[1], area[3]));
+    const [ax1, ay1] = fracToCss(m, Math.max(area[0], area[2]), Math.max(area[1], area[3]));
+
+    if (cfg.dimOutside && (cfg.roi || dragRect)) {
+      octx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      octx.beginPath();
+      octx.rect(m.ox, m.oy, m.dispW, m.dispH);
+      octx.rect(ax0, ay0, ax1 - ax0, ay1 - ay0);
+      octx.fill("evenodd");
     }
-    return thr;
-  }
-
-  function buildMask(lum, width, height, roi) {
-    const n = width * height;
-    const mask = new Uint8Array(n);
-    const thr = cfg.threshold;
-
-    if (cfg.mode === "absolute") {
-      for (let p = 0; p < n; p++) {
-        const on = cfg.invert ? lum[p] < thr : lum[p] > thr;
-        mask[p] = on ? 1 : 0;
-      }
-    } else if (cfg.mode === "local") {
-      // média local 15×15 vs pixel: realça grãos mesmo com sombra na esteira
-      const local = boxBlur(lum, width, height, 7);
-      const C = thr;
-      for (let p = 0; p < n; p++) {
-        const on = cfg.invert
-          ? lum[p] < local[p] - C
-          : lum[p] > local[p] + C;
-        mask[p] = on ? 1 : 0;
-      }
-    } else {
-      // contraste: grão = esteira (percentil escuro) + offset
-      const belt = percentileInRoi(lum, width, height, roi, 0.18);
-      const cut = belt + thr;
-      for (let p = 0; p < n; p++) {
-        const on = cfg.invert ? lum[p] < belt - thr : lum[p] > cut;
-        mask[p] = on ? 1 : 0;
-      }
-    }
-
-    applyRoi(mask, width, height, roi);
-    return morphOpenClose(mask, width, height, cfg.morph);
-  }
-
-  /** Abertura (ruído) + erosão extra opcional para separar grãos colados */
-  function morphOpenClose(mask, width, height, rounds) {
-    if (rounds <= 0) return mask;
-    let src = mask;
-
-    // abertura: erode → dilate
-    for (let r = 0; r < Math.min(rounds, 2); r++) {
-      src = erode(src, width, height);
-    }
-    for (let r = 0; r < Math.min(rounds, 2); r++) {
-      src = dilate(src, width, height);
-    }
-    // separação forte se morph alto
-    if (rounds >= 3) {
-      src = erode(src, width, height);
-      if (rounds >= 4) src = erode(src, width, height);
-      src = dilate(src, width, height);
-    }
-    return src;
-  }
-
-  function erode(src, width, height) {
-    const dst = new Uint8Array(width * height);
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const i = y * width + x;
-        if (
-          src[i] &&
-          src[i - 1] &&
-          src[i + 1] &&
-          src[i - width] &&
-          src[i + width]
-        ) {
-          dst[i] = 1;
-        }
-      }
-    }
-    return dst;
-  }
-
-  function dilate(src, width, height) {
-    const dst = new Uint8Array(width * height);
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const i = y * width + x;
-        if (!src[i]) continue;
-        dst[i] = 1;
-        dst[i - 1] = 1;
-        dst[i + 1] = 1;
-        dst[i - width] = 1;
-        dst[i + width] = 1;
-      }
-    }
-    return dst;
-  }
-
-  function findBlobs(mask, width, height, minArea, maxArea) {
-    const visited = new Uint8Array(width * height);
-    const blobs = [];
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = y * width + x;
-        if (!mask[i] || visited[i]) continue;
-
-        let sumX = 0;
-        let sumY = 0;
-        let area = 0;
-        let minX = x;
-        let maxX = x;
-        let minY = y;
-        let maxY = y;
-        const stack = [i];
-        visited[i] = 1;
-
-        while (stack.length) {
-          const idx = stack.pop();
-          const cx = idx % width;
-          const cy = (idx / width) | 0;
-          sumX += cx;
-          sumY += cy;
-          area++;
-          if (cx < minX) minX = cx;
-          if (cx > maxX) maxX = cx;
-          if (cy < minY) minY = cy;
-          if (cy > maxY) maxY = cy;
-
-          const neighbors = [idx - 1, idx + 1, idx - width, idx + width];
-          for (const n of neighbors) {
-            if (n < 0 || n >= visited.length) continue;
-            if (visited[n] || !mask[n]) continue;
-            const nx = n % width;
-            if (Math.abs(nx - cx) > 1) continue;
-            visited[n] = 1;
-            stack.push(n);
-          }
-        }
-
-        if (area < minArea || area > maxArea) continue;
-
-        const bw = maxX - minX + 1;
-        const bh = maxY - minY + 1;
-        const aspect = bw > bh ? bw / bh : bh / bw;
-        if (aspect > 4.5) continue; // reflexo linear / borda
-
-        const boxArea = bw * bh;
-        const fill = area / boxArea;
-        // grãos de arroz preenchem razoavelmente o bounding box
-        if (fill < 0.22) continue;
-
-        blobs.push({
-          x: sumX / area,
-          y: sumY / area,
-          area,
-          w: bw,
-          h: bh,
-        });
-      }
-    }
-    return blobs;
-  }
-
-  function axisValue(pt) {
-    return isHorizontal() ? pt.x : pt.y;
-  }
-
-  function lineCoordinate(width, height) {
-    return isHorizontal() ? width * cfg.linePos : height * cfg.linePos;
-  }
-
-  function crossesForward(prev, curr, line) {
-    const a = axisValue(prev);
-    const b = axisValue(curr);
-    if (cfg.direction === "ltr" || cfg.direction === "ttb") {
-      return a < line && b >= line;
-    }
-    return a > line && b <= line;
-  }
-
-  function matchTracks(blobs) {
-    const maxDist = cfg.matchDist;
-    const assignedBlob = new Set();
-    const nextTracks = [];
-
-    for (const track of tracks) {
-      let best = -1;
-      let bestDist = maxDist;
-      const vx = track.x - track.prevX;
-      const vy = track.y - track.prevY;
-      const predX = track.x + vx * 0.85;
-      const predY = track.y + vy * 0.85;
-
-      for (let i = 0; i < blobs.length; i++) {
-        if (assignedBlob.has(i)) continue;
-        const d = Math.hypot(blobs[i].x - predX, blobs[i].y - predY);
-        if (d < bestDist) {
-          bestDist = d;
-          best = i;
-        }
-      }
-
-      if (best >= 0) {
-        const b = blobs[best];
-        assignedBlob.add(best);
-        nextTracks.push({
-          id: track.id,
-          x: b.x,
-          y: b.y,
-          prevX: track.x,
-          prevY: track.y,
-          area: b.area,
-          w: b.w,
-          h: b.h,
-          age: track.age + 1,
-          counted: track.counted,
-          assistStatus: track.assistStatus || null,
-          missed: 0,
-          hits: (track.hits || 1) + 1,
-        });
-      } else if (track.missed < 5) {
-        nextTracks.push({
-          ...track,
-          x: predX,
-          y: predY,
-          prevX: track.x,
-          prevY: track.y,
-          missed: track.missed + 1,
-        });
-      }
-    }
-
-    for (let i = 0; i < blobs.length; i++) {
-      if (assignedBlob.has(i)) continue;
-      const b = blobs[i];
-      nextTracks.push({
-        id: nextTrackId++,
-        x: b.x,
-        y: b.y,
-        prevX: b.x,
-        prevY: b.y,
-        area: b.area,
-        w: b.w,
-        h: b.h,
-        age: 1,
-        counted: false,
-        assistStatus: null,
-        missed: 0,
-        hits: 1,
-      });
-    }
-
-    tracks = nextTracks;
-  }
-
-  function peersNearLine(track, line) {
-    let n = 0;
-    for (const t of tracks) {
-      if (t.id === track.id || t.missed > 0) continue;
-      if (Math.abs(axisValue(t) - line) < cfg.matchDist * 0.65) n += 1;
-    }
-    return n;
-  }
-
-  function applyVerdict(track, verdict, now) {
-    track.counted = true;
-    track.assistStatus =
-      verdict.source === "classic"
-        ? verdict.doubtful
-          ? "doubt"
-          : "classic"
-        : verdict.n <= 0
-          ? "rejected"
-          : "confirmed";
-
-    if (verdict.n > 0) {
-      totalCount += verdict.n;
-      for (let k = 0; k < verdict.n; k++) countEvents.push(now);
-      if (verdict.source !== "classic") {
-        const tag = verdict.source === "yolo" ? "YOLO" : "stub";
-        const ms = verdict.ms != null ? ` · ${verdict.ms.toFixed(0)}ms` : "";
-        setStatus(
-          `${tag}: ${(verdict.reasons || []).join(",") || "ok"} → +${verdict.n}${ms}`
-        );
-      }
-    } else if (verdict.source !== "classic") {
-      const tag = verdict.source === "yolo" ? "YOLO" : "stub";
-      setStatus(`${tag} rejeitou (${(verdict.reasons || []).join(",")})`);
-    }
-  }
-
-  function countCrossings(line, now) {
-    for (const track of tracks) {
-      if (track.counted || track.missed > 0 || track.pendingAssist) continue;
-      if (track.age < 2 || (track.hits || 0) < 2) continue;
-      if (
-        !crossesForward(
-          { x: track.prevX, y: track.prevY },
-          { x: track.x, y: track.y },
-          line
-        )
-      ) {
-        continue;
-      }
-
-      const blob = {
-        x: track.x,
-        y: track.y,
-        area: track.area || 0,
-        w: track.w || 1,
-        h: track.h || 1,
-      };
-      const ctx = {
-        medianArea: lastMedianArea,
-        nearLinePeers: peersNearLine(track, line),
-        hits: track.hits || 0,
-        age: track.age || 0,
-      };
-
-      const doubt = assessDoubt(blob, ctx);
-      const needYolo =
-        cfg.assistMode === "doubt" && doubt.doubtful && yoloReady && lastFrameRgb;
-
-      if (needYolo && !assistBusy) {
-        track.pendingAssist = true;
-        track.assistStatus = "doubt";
-        assistBusy = true;
-        const frame = lastFrameRgb;
-        resolveCrossingCountAsync(blob, ctx, cfg.assistMode, async () =>
-          yoloAssist.arbitrateCrop(frame, blob)
-        )
-          .then((verdict) => {
-            applyVerdict(track, verdict, performance.now());
-            track.pendingAssist = false;
-            assistBusy = false;
-            updateHud(lastVisibleBlobs);
-          })
-          .catch(() => {
-            const fallback = resolveCrossingCount(blob, ctx, cfg.assistMode);
-            applyVerdict(track, fallback, performance.now());
-            track.pendingAssist = false;
-            assistBusy = false;
-          });
-        continue;
-      }
-
-      const verdict = resolveCrossingCount(blob, ctx, cfg.assistMode);
-      applyVerdict(track, verdict, now);
-    }
-  }
-
-  function drawOverlay(blobs, line, procW, procHLocal, roi) {
-    const w = overlay.width;
-    const h = overlay.height;
-    octx.clearRect(0, 0, w, h);
-
-    const map = containMap(procW, procHLocal, w, h);
-    const toX = (x) => x * map.scaleX + map.offsetX;
-    const toY = (y) => y * map.scaleY + map.offsetY;
-
-    if (cfg.showRoi && cfg.roi < 0.99) {
-      octx.fillStyle = "rgba(0, 0, 0, 0.48)";
-      octx.fillRect(0, 0, w, h);
-      octx.clearRect(
-        toX(roi.x0),
-        toY(roi.y0),
-        (roi.x1 - roi.x0) * map.scaleX,
-        (roi.y1 - roi.y0) * map.scaleY
-      );
-      // repor laterais fora do letterbox?
-      // máscara: pintar fora do ROI dentro do rect do vídeo
-      if (isHorizontal()) {
-        octx.fillStyle = "rgba(0, 0, 0, 0.48)";
-        octx.fillRect(toX(0), toY(0), procW * map.scaleX, toY(roi.y0) - toY(0));
-        octx.fillRect(
-          toX(0),
-          toY(roi.y1),
-          procW * map.scaleX,
-          toY(procHLocal) - toY(roi.y1)
-        );
-      } else {
-        octx.fillStyle = "rgba(0, 0, 0, 0.48)";
-        octx.fillRect(toX(0), toY(0), toX(roi.x0) - toX(0), procHLocal * map.scaleY);
-        octx.fillRect(
-          toX(roi.x1),
-          toY(0),
-          toX(procW) - toX(roi.x1),
-          procHLocal * map.scaleY
-        );
-      }
-      octx.strokeStyle = "rgba(62, 207, 142, 0.7)";
-      octx.lineWidth = 1.5;
-      octx.setLineDash([4, 4]);
-      octx.strokeRect(
-        toX(roi.x0),
-        toY(roi.y0),
-        (roi.x1 - roi.x0) * map.scaleX,
-        (roi.y1 - roi.y0) * map.scaleY
-      );
+    if (cfg.roi || dragRect) {
+      octx.strokeStyle = "#ff9f1c";
+      octx.lineWidth = 2;
+      octx.setLineDash(dragRect ? [6, 4] : []);
+      octx.strokeRect(ax0, ay0, ax1 - ax0, ay1 - ay0);
       octx.setLineDash([]);
+      octx.fillStyle = "#ff9f1c";
+      octx.font = "600 12px system-ui, sans-serif";
+      octx.fillText("Área de contagem", ax0 + 6, Math.max(14, ay0 - 6));
     }
 
-    octx.strokeStyle = "rgba(242, 212, 92, 0.95)";
-    octx.lineWidth = Math.max(2, w * 0.004);
-    octx.setLineDash([10, 8]);
+    const boxes = (lastState && lastState.boxes) || [];
+    octx.font = "12px ui-monospace, monospace";
+    for (const b of boxes) {
+      const [x, y] = fracToCss(m, b.x1 / frameSize.w, b.y1 / frameSize.h);
+      const [x2, y2] = fracToCss(m, b.x2 / frameSize.w, b.y2 / frameSize.h);
+      const color = b.counted ? "#5aa9ff" : "#3ecf8e";
+      octx.strokeStyle = color;
+      octx.lineWidth = 2;
+      octx.strokeRect(x, y, x2 - x, y2 - y);
+      const label = cfg.showConf ? `#${b.id} ${Math.round((b.conf || 0) * 100)}%` : `#${b.id}`;
+      const tw = octx.measureText(label).width + 6;
+      octx.fillStyle = "rgba(0, 0, 0, 0.6)";
+      octx.fillRect(x, Math.max(0, y - 15), tw, 14);
+      octx.fillStyle = color;
+      octx.fillText(label, x + 3, Math.max(11, y - 4));
+    }
+
+    if (!dragRect) drawLine(m);
+  }
+
+  function drawLine(m) {
+    const [x0, y0, x1, y1] = roiOrFull();
+    octx.strokeStyle = draggingLine ? "#fff3a8" : "#f2d45c";
+    octx.lineWidth = draggingLine ? 3 : 2;
     octx.beginPath();
-    if (isHorizontal()) {
-      const x = toX(line);
-      octx.moveTo(x, toY(0));
-      octx.lineTo(x, toY(procHLocal));
+    let hx;
+    let hy;
+    if (isVertical()) {
+      const [lx, ly0] = fracToCss(m, cfg.linePos, y0);
+      const [, ly1] = fracToCss(m, cfg.linePos, y1);
+      octx.moveTo(lx, ly0);
+      octx.lineTo(lx, ly1);
+      hx = lx;
+      hy = (ly0 + ly1) / 2;
     } else {
-      const y = toY(line);
-      octx.moveTo(toX(0), y);
-      octx.lineTo(toX(procW), y);
+      const [lx0, ly] = fracToCss(m, x0, cfg.linePos);
+      const [lx1] = fracToCss(m, x1, cfg.linePos);
+      octx.moveTo(lx0, ly);
+      octx.lineTo(lx1, ly);
+      hx = (lx0 + lx1) / 2;
+      hy = ly;
     }
     octx.stroke();
-    octx.setLineDash([]);
-
-    octx.fillStyle = "rgba(242, 212, 92, 0.9)";
-    octx.font = `${Math.max(12, w * 0.03)}px system-ui, sans-serif`;
-    const label = { ltr: "→", rtl: "←", ttb: "↓", btt: "↑" }[cfg.direction] || "→";
-    if (isHorizontal()) octx.fillText(label, toX(line) + 8, toY(0) + 28);
-    else octx.fillText(label, toX(0) + 12, toY(line) - 8);
-
-    for (const b of blobs) {
-      const x = toX(b.x);
-      const y = toY(b.y);
-      const r = Math.max(4, Math.sqrt(b.area) * 0.38 * map.scaleX);
-      const doubt =
-        cfg.assistMode === "doubt"
-          ? assessDoubt(b, { medianArea: lastMedianArea })
-          : { doubtful: false };
-      octx.beginPath();
-      octx.arc(x, y, r, 0, Math.PI * 2);
-      if (doubt.doubtful) {
-        octx.strokeStyle = "rgba(242, 180, 60, 0.95)";
-        octx.fillStyle = "rgba(242, 180, 60, 0.28)";
-      } else {
-        octx.strokeStyle = "rgba(62, 207, 142, 0.95)";
-        octx.fillStyle = "rgba(62, 207, 142, 0.3)";
-      }
-      octx.lineWidth = 2;
-      octx.stroke();
-      octx.fill();
-    }
-
-    for (const t of tracks) {
-      if (t.missed > 0) continue;
-      let fill = "rgba(232, 240, 234, 0.9)";
-      if (t.assistStatus === "confirmed") fill = "rgba(80, 160, 255, 0.95)";
-      else if (t.assistStatus === "rejected") fill = "rgba(228, 87, 87, 0.95)";
-      else if (t.counted) fill = "rgba(242, 212, 92, 0.95)";
-      octx.fillStyle = fill;
-      octx.beginPath();
-      octx.arc(toX(t.x), toY(t.y), 3, 0, Math.PI * 2);
-      octx.fill();
-    }
+    // alca + seta do sentido de passagem
+    octx.fillStyle = "#f2d45c";
+    octx.beginPath();
+    octx.arc(hx, hy, 7, 0, Math.PI * 2);
+    octx.fill();
+    const arrow = { rtl: [-1, 0], ltr: [1, 0], ttb: [0, 1], btt: [0, -1] }[cfg.direction] || [1, 0];
+    const ax = hx + arrow[0] * 22;
+    const ay = hy + arrow[1] * 22;
+    octx.lineWidth = 2;
+    octx.beginPath();
+    octx.moveTo(hx + arrow[0] * 9, hy + arrow[1] * 9);
+    octx.lineTo(ax, ay);
+    octx.lineTo(ax - arrow[0] * 6 - arrow[1] * 5, ay - arrow[1] * 6 - arrow[0] * 5);
+    octx.moveTo(ax, ay);
+    octx.lineTo(ax - arrow[0] * 6 + arrow[1] * 5, ay - arrow[1] * 6 + arrow[0] * 5);
+    octx.stroke();
   }
 
-  function processFrame(ts) {
-    if (!running) return;
-    rafId = requestAnimationFrame(processFrame);
-    if (video.readyState < 2) return;
+  // ------------------------------------------------------------ interacao
 
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    if (!vw || !vh) return;
-
-    const aspect = vh / vw;
-    procH = Math.max(1, Math.round(PROC_W * aspect));
-    if (processCanvas.width !== PROC_W || processCanvas.height !== procH) {
-      processCanvas.width = PROC_W;
-      processCanvas.height = procH;
-    }
-
-    const displayW = viewport.clientWidth;
-    const displayH = viewport.clientHeight;
-    if (overlay.width !== displayW || overlay.height !== displayH) {
-      overlay.width = displayW;
-      overlay.height = displayH;
-    }
-
-    pctx.drawImage(video, 0, 0, PROC_W, procH);
-    const image = pctx.getImageData(0, 0, PROC_W, procH);
-    const data = image.data;
-    // cópia RGB para o árbitro YOLO (antes da máscara sobrescrever)
-    lastFrameRgb = new ImageData(
-      new Uint8ClampedArray(data),
-      PROC_W,
-      procH
-    );
-    const n = PROC_W * procH;
-    const lum = new Float32Array(n);
-
-    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-      // luminância + peso no canal verde (arroz costuma ser “quente”)
-      lum[p] =
-        0.25 * data[i] + 0.5 * data[i + 1] + 0.15 * data[i + 2] + 0.1 * Math.max(data[i], data[i + 1], data[i + 2]);
-    }
-
-    const blurred = boxBlur(lum, PROC_W, procH, 1);
-    const roi = roiBounds(PROC_W, procH);
-    let mask = buildMask(blurred, PROC_W, procH, roi);
-
-    lastLum = blurred;
-    lastRoi = roi;
-    lastProc = { w: PROC_W, h: procH };
-
-    if (cfg.showMask) {
-      for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-        const v = mask[p] ? 255 : 0;
-        data[i] = v;
-        data[i + 1] = v;
-        data[i + 2] = v;
-      }
-      pctx.putImageData(image, 0, 0);
-      octx.clearRect(0, 0, overlay.width, overlay.height);
-      const map = containMap(PROC_W, procH, overlay.width, overlay.height);
-      octx.drawImage(
-        processCanvas,
-        map.offsetX,
-        map.offsetY,
-        PROC_W * map.scaleX,
-        procH * map.scaleY
-      );
-      // linha sobre máscara
-      const line = lineCoordinate(PROC_W, procH);
-      octx.strokeStyle = "rgba(242, 212, 92, 0.95)";
-      octx.lineWidth = 2;
-      octx.setLineDash([8, 6]);
-      octx.beginPath();
-      if (isHorizontal()) {
-        const x = line * map.scaleX + map.offsetX;
-        octx.moveTo(x, map.offsetY);
-        octx.lineTo(x, map.offsetY + procH * map.scaleY);
-      } else {
-        const y = line * map.scaleY + map.offsetY;
-        octx.moveTo(map.offsetX, y);
-        octx.lineTo(map.offsetX + PROC_W * map.scaleX, y);
-      }
-      octx.stroke();
-      octx.setLineDash([]);
-    }
-
-    // escala de área relativa ao frame de referência do slider (como se fosse ~640×360)
-    const scale = (PROC_W * procH) / (640 * 360);
-    const minA = Math.max(2, Math.round(cfg.minArea * scale));
-    const maxA = Math.max(minA + 1, Math.round(cfg.maxArea * scale));
-    const blobs = findBlobs(mask, PROC_W, procH, minA, maxA);
-    const line = lineCoordinate(PROC_W, procH);
-    const stats = blobStats(blobs);
-    lastMedianArea = stats.medianArea;
-    lastBlobList = blobs;
-
-    if (counting) {
-      if (!sessionStart) sessionStart = ts;
-      if (cfg.countMode === "instant") {
-        tracks = [];
-        totalCount = blobs.length;
-      } else {
-        matchTracks(blobs);
-        const before = totalCount;
-        countCrossings(line, ts);
-        if (
-          blobs.length > 0 &&
-          totalCount === before &&
-          ts - hintCooldown > 4000
-        ) {
-          hintCooldown = ts;
-          setStatus(
-            `${blobs.length} detectado(s) — mova pela linha amarela para contar`
-          );
-        } else if (totalCount > before) {
-          setStatus(`Contou +${totalCount - before} · total ${totalCount}`);
-        }
-      }
-    } else {
-      tracks = [];
-    }
-
-    lastVisibleBlobs = blobs.length;
-
-    if (!cfg.showMask) {
-      drawOverlay(blobs, line, PROC_W, procH, roi);
-    }
-
-    if (lastTs) {
-      const fps = 1000 / Math.max(1, ts - lastTs);
-      fpsEma = fpsEma ? fpsEma * 0.85 + fps * 0.15 : fps;
-    }
-    lastTs = ts;
-    updateHud(blobs.length, ts);
+  function setDrawMode(on) {
+    drawMode = on;
+    dragRect = null;
+    viewport.classList.toggle("drawing", on);
+    btnDrawArea.textContent = on ? "Cancelar desenho" : "Desenhar área de contagem";
+    editHint.innerHTML = on
+      ? "Clique e arraste sobre o vídeo para marcar a <strong>área de contagem</strong>. Só o que estiver dentro dela vai para o YOLO."
+      : "O vídeo mostra exatamente o que o YOLO detecta: caixa verde = comprimido visto, caixa azul = já contado. Arraste a <strong>linha amarela</strong> para mudar onde conta.";
+    render();
   }
 
-  function autoCalibrate() {
-    if (!lastLum || !lastRoi) {
-      setStatus("Inicie a câmera e deixe grãos na esteira");
-      return;
-    }
-    const { w, h } = lastProc;
-    const roi = lastRoi;
-    const hist = new Uint32Array(256);
-    let total = 0;
-    const step = 1;
-    for (let y = roi.y0; y < roi.y1; y += step) {
-      for (let x = roi.x0; x < roi.x1; x += step) {
-        const v = Math.max(0, Math.min(255, Math.round(lastLum[y * w + x])));
-        hist[v]++;
-        total++;
-      }
-    }
-    const otsu = otsuFromHistogram(hist, total);
-    const belt = percentileInRoi(lastLum, w, h, roi, 0.15);
-    const grain = percentileInRoi(lastLum, w, h, roi, 0.85);
-    const gap = Math.max(8, grain - belt);
-
-    cfg.mode = "contrast";
-    modeEl.value = "contrast";
-    updateThresholdUI();
-    // fica no meio do vão esteira→grão, um pouco abaixo do grão
-    cfg.threshold = Math.max(10, Math.min(100, Math.round(gap * 0.42)));
-    // áreas típicas: metade do que Otsu “vê”
-    const sampleMask = buildMask(lastLum, w, h, roi);
-    const scale = (w * h) / (640 * 360);
-    const blobs = findBlobs(
-      sampleMask,
-      w,
-      h,
-      Math.max(2, Math.round(8 * scale)),
-      Math.max(50, Math.round(12000 * scale))
-    );
-
-    if (blobs.length > 0) {
-      const areas = blobs.map((b) => b.area).sort((a, b) => a - b);
-      const med = areas[(areas.length / 2) | 0] / scale;
-      cfg.minArea = Math.max(5, Math.round(med * 0.35));
-      cfg.maxArea = Math.max(cfg.minArea + 50, Math.round(med * 4.5));
-    } else {
-      // pouca coisa detetada — limiar um pouco mais frouxo
-      cfg.threshold = Math.max(8, Math.round(cfg.threshold * 0.75));
-      cfg.minArea = 12;
-      cfg.maxArea = 3000;
-    }
-
-    applyCfgToDOM();
-    readControls();
-    setStatus(
-      `Auto: contraste ${cfg.threshold} · esteira~${belt.toFixed(0)} grão~${grain.toFixed(0)} (otsu ${otsu})`
-    );
-  }
-
-  async function startCamera() {
-    if (stream) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setStatus("Navegador sem suporte a câmera");
-      return;
-    }
-
-    if (
-      !window.isSecureContext &&
-      location.hostname !== "localhost" &&
-      location.hostname !== "127.0.0.1"
-    ) {
-      setStatus("Use HTTPS para câmera no celular");
-    }
-
-    btnStart.disabled = true;
-    setStatus("Pedindo acesso à câmera…");
-
-    const attempts = [
-      {
-        audio: false,
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      },
-      { audio: false, video: { facingMode: "environment" } },
-      { audio: false, video: true },
-    ];
-
-    let lastErr = null;
-    for (const constraints of attempts) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        break;
-      } catch (err) {
-        lastErr = err;
-      }
-    }
-
-    if (!stream) {
-      console.error(lastErr);
-      btnStart.disabled = false;
-      const name = lastErr && lastErr.name ? lastErr.name : "Error";
-      if (name === "NotAllowedError") setStatus("Permissão de câmera negada");
-      else if (name === "NotFoundError") setStatus("Nenhuma câmera encontrada");
-      else if (name === "NotReadableError") setStatus("Câmera em uso por outro app");
-      else setStatus("Falha ao abrir a câmera");
-      return;
-    }
-
+  function capture(ev) {
     try {
-      video.srcObject = stream;
-      await video.play();
-      viewport.classList.add("live");
-      running = true;
-      counting = true;
-      sessionStart = 0;
-      btnPause.disabled = false;
-      btnReset.disabled = false;
-      btnSnap.disabled = false;
-      if (btnAssistCheck) btnAssistCheck.disabled = false;
-      btnPause.textContent = "Pausar contagem";
-      btnStart.disabled = false;
-      btnStart.textContent = "Parar câmera";
-      setStatus(
-        cfg.countMode === "instant"
-          ? "Instantâneo — total = grãos visíveis"
-          : "Esteira — cruze a linha amarela para contar"
-      );
-      updateCountModeUI();
-      if (cfg.assistMode === "doubt") ensureYoloLoaded();
-      lastTs = 0;
-      rafId = requestAnimationFrame(processFrame);
-    } catch (err) {
-      console.error(err);
-      stopCamera();
-      setStatus("Falha ao iniciar o vídeo");
+      overlay.setPointerCapture(ev.pointerId);
+    } catch {
+      /* ponteiro ja liberado */
     }
   }
 
-  function stopCamera() {
-    running = false;
-    counting = false;
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = 0;
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
-      stream = null;
+  overlay.addEventListener("pointerdown", (ev) => {
+    if (!connected) return;
+    if (drawMode) {
+      const [fx, fy] = eventToFrac(ev);
+      dragRect = { x0: fx, y0: fy, x1: fx, y1: fy };
+      capture(ev);
+      ev.preventDefault();
+      return;
     }
-    video.srcObject = null;
-    viewport.classList.remove("live");
-    octx.clearRect(0, 0, overlay.width, overlay.height);
-    tracks = [];
-    sessionStart = 0;
-    lastLum = null;
-    btnStart.disabled = false;
-    btnStart.textContent = "Iniciar câmera";
-    btnPause.disabled = true;
-    btnSnap.disabled = true;
-    if (btnAssistCheck) btnAssistCheck.disabled = true;
-    btnPause.textContent = "Pausar contagem";
-    setStatus("Câmera desligada");
-    updateHud(0);
-  }
-
-  btnStart.addEventListener("click", () => {
-    if (stream) stopCamera();
-    else startCamera();
+    if (nearLine(ev)) {
+      draggingLine = true;
+      capture(ev);
+      ev.preventDefault();
+      render();
+    }
   });
 
-  if (btnYoloConnect) {
-    btnYoloConnect.addEventListener("click", () => connectYolo());
-  }
-
-  btnPause.addEventListener("click", () => {
-    if (yoloConnected && yoloWs && yoloWs.readyState === WebSocket.OPEN) {
-      yoloPaused = !yoloPaused;
-      yoloWs.send(JSON.stringify({ type: "pause", paused: yoloPaused }));
-      btnPause.textContent = yoloPaused ? "Retomar contagem" : "Pausar contagem";
-      setStatus(yoloPaused ? "Contagem pausada (PC)" : "Contando no PC…");
+  overlay.addEventListener("pointermove", (ev) => {
+    if (!connected) return;
+    if (dragRect) {
+      const [fx, fy] = eventToFrac(ev);
+      dragRect.x1 = fx;
+      dragRect.y1 = fy;
+      render();
       return;
     }
-    if (!stream) return;
-    counting = !counting;
-    if (!counting) tracks = [];
-    else sessionStart = sessionStart || performance.now();
-    btnPause.textContent = counting ? "Pausar contagem" : "Retomar contagem";
-    setStatus(counting ? "Contando…" : "Contagem pausada");
+    if (draggingLine) {
+      const [fx, fy] = eventToFrac(ev);
+      const [x0, y0, x1, y1] = roiOrFull();
+      const v = isVertical() ? fx : fy;
+      const lo = isVertical() ? x0 : y0;
+      const hi = isVertical() ? x1 : y1;
+      cfg.linePos = Math.min(hi - 0.01, Math.max(lo + 0.01, v));
+      linePosEl.value = String(Math.round(cfg.linePos * 100));
+      linePosLabel.textContent = linePosEl.value;
+      render();
+      return;
+    }
+    if (!drawMode) {
+      viewport.classList.toggle("grab-line", nearLine(ev));
+      viewport.classList.toggle("grab-vertical", isVertical());
+    }
+  });
+
+  function endPointer() {
+    if (dragRect) {
+      const x0 = Math.min(dragRect.x0, dragRect.x1);
+      const x1 = Math.max(dragRect.x0, dragRect.x1);
+      const y0 = Math.min(dragRect.y0, dragRect.y1);
+      const y1 = Math.max(dragRect.y0, dragRect.y1);
+      dragRect = null;
+      if ((x1 - x0) * (y1 - y0) >= MIN_AREA_FRAC) {
+        cfg.roi = [x0, y0, x1, y1].map((v) => Math.round(v * 1000) / 1000);
+        clampLineToRoi();
+        applyCfgToDOM();
+        pushConfig();
+        saveCfg(true);
+        setStatus("Área de contagem definida");
+      } else {
+        setStatus("Área muito pequena — arraste um retângulo maior");
+      }
+      setDrawMode(false);
+      return;
+    }
+    if (draggingLine) {
+      draggingLine = false;
+      pushConfig();
+      saveCfg(true);
+      setStatus(`Linha em ${Math.round(cfg.linePos * 100)}%`);
+      render();
+    }
+  }
+  overlay.addEventListener("pointerup", endPointer);
+  overlay.addEventListener("pointercancel", endPointer);
+
+  btnDrawArea.addEventListener("click", () => setDrawMode(!drawMode));
+  btnClearArea.addEventListener("click", () => {
+    cfg.roi = null;
+    setDrawMode(false);
+    pushConfig();
+    saveCfg(true);
+    setStatus("Usando a imagem inteira");
+  });
+
+  // ------------------------------------------------------------ servico
+
+  function baseUrl() {
+    return cfg.yoloServiceUrl.replace(/\/$/, "");
+  }
+
+  function wsUrl() {
+    const u = new URL(baseUrl());
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    u.pathname = "/ws";
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  }
+
+  function onState(state) {
+    if (!state || state.type !== "state") return;
+    const prev = totalCount;
+    totalCount = Number(state.total) || 0;
+    const now = performance.now();
+    for (let i = 0; i < totalCount - prev; i++) countEvents.push(now);
+    fps = Number(state.fps) || fps;
+    frameSize = { w: state.frame_w || frameSize.w, h: state.frame_h || frameSize.h };
+    paused = !!state.paused;
+    lastState = state;
+    updateHud((state.boxes || []).length);
+    updateValidation();
+    if (state.model_warning) setStatus(`YOLO: ${state.model_warning}`);
+    render();
+  }
+
+  async function runFrameLoop(token) {
+    while (connected && token === frameLoop) {
+      const t0 = performance.now();
+      try {
+        const res = await fetch(`${baseUrl()}/frame.jpg?raw=1&t=${Date.now()}`, { cache: "no-store" });
+        if (res.ok) {
+          const url = URL.createObjectURL(await res.blob());
+          const prev = yoloFrame.src;
+          yoloFrame.src = url;
+          yoloFrame.hidden = false;
+          viewport.classList.add("live");
+          if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+        }
+      } catch {
+        /* falha transitoria */
+      }
+      const wait = Math.max(30, 80 - (performance.now() - t0));
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+
+  function setConnectedUI(on) {
+    btnYoloConnect.textContent = on ? "Desconectar YOLO" : "Conectar YOLO";
+    btnPause.disabled = !on;
+    btnReset.disabled = !on;
+    btnDrawArea.disabled = !on;
+    btnClearArea.disabled = !on;
+    viewport.classList.toggle("connected", on);
+  }
+
+  function disconnect() {
+    connected = false;
+    frameLoop += 1;
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+      ws = null;
+    }
+    if (yoloFrame.src && yoloFrame.src.startsWith("blob:")) URL.revokeObjectURL(yoloFrame.src);
+    yoloFrame.removeAttribute("src");
+    yoloFrame.hidden = true;
+    viewport.classList.remove("live");
+    setDrawMode(false);
+    sessionStart = 0;
+    lastState = null;
+    setConnectedUI(false);
+    btnPause.textContent = "Pausar contagem";
+    setStatus("YOLO desconectado");
+    updateHud(0);
+    render();
+  }
+
+  function connect() {
+    readControls();
+    if (connected) {
+      disconnect();
+      return;
+    }
+    setStatus("Conectando ao serviço YOLO…");
+    try {
+      ws = new WebSocket(wsUrl());
+    } catch {
+      setStatus("URL do serviço inválida");
+      return;
+    }
+    ws.addEventListener("open", () => {
+      connected = true;
+      sessionStart = performance.now();
+      setConnectedUI(true);
+      pushConfig();
+      setStatus("YOLO conectado — contando no PC");
+      frameLoop += 1;
+      runFrameLoop(frameLoop);
+    });
+    ws.addEventListener("message", (ev) => {
+      try {
+        onState(JSON.parse(ev.data));
+      } catch {
+        /* mensagem invalida */
+      }
+    });
+    ws.addEventListener("close", () => {
+      if (connected) disconnect();
+    });
+    ws.addEventListener("error", () => {
+      setStatus(`Falha no WebSocket — o serviço está rodando em ${baseUrl()}?`);
+    });
+  }
+
+  // ------------------------------------------------------------ eventos
+
+  btnYoloConnect.addEventListener("click", connect);
+
+  btnPause.addEventListener("click", () => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    paused = !paused;
+    ws.send(JSON.stringify({ type: "pause", paused }));
+    btnPause.textContent = paused ? "Retomar contagem" : "Pausar contagem";
+    setStatus(paused ? "Contagem pausada" : "Contando no PC…");
   });
 
   btnReset.addEventListener("click", () => {
     totalCount = 0;
     lastDisplayCount = 0;
     countEvents = [];
-    tracks = [];
-    sessionStart =
-      counting || (yoloConnected && !yoloPaused) ? performance.now() : 0;
-    if (yoloConnected && yoloWs && yoloWs.readyState === WebSocket.OPEN) {
-      yoloWs.send(JSON.stringify({ type: "reset" }));
-    }
-    updateHud(Number(visibleValue.textContent) || 0);
+    sessionStart = connected && !paused ? performance.now() : 0;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "reset" }));
+    updateHud(0);
+    updateValidation();
   });
 
-  btnSnap.addEventListener("click", () => {
-    if (!stream) return;
-    const n = lastVisibleBlobs;
-    totalCount = n;
-    setStatus(`Snapshot: ${n} grão(s) na área`);
-    updateHud(n);
+  [directionEl, linePosEl, confEl].forEach((el) =>
+    el.addEventListener("input", () => {
+      readControls();
+      if (el === directionEl) clampLineToRoi();
+      applyCfgToDOM();
+      pushConfig();
+      render();
+    })
+  );
+  [showConfEl, dimOutsideEl].forEach((el) =>
+    el.addEventListener("change", () => {
+      readControls();
+      render();
+    })
+  );
+  yoloServiceUrlEl.addEventListener("change", readControls);
+  expectedLotEl.addEventListener("input", () => {
+    readControls();
+    updateValidation();
   });
-
-  if (btnAssistCheck) {
-    btnAssistCheck.addEventListener("click", async () => {
-      if (!stream || !lastFrameRgb) {
-        setStatus("Nada para verificar");
-        return;
-      }
-      await ensureYoloLoaded();
-      if (yoloReady) {
-        setStatus("YOLO analisando frame…");
-        try {
-          const v = await yoloAssist.arbitrateFrame(lastFrameRgb);
-          totalCount = v.n;
-          setStatus(
-            `YOLO: ${v.n} grão(s) · conf ${(v.conf || 0).toFixed(2)} · ${v.ms.toFixed(0)}ms`
-          );
-          updateHud(lastBlobList.length);
-          return;
-        } catch (err) {
-          console.warn(err);
-          setStatus("YOLO falhou — tentando stub");
-        }
-      }
-      const stats = blobStats(lastBlobList);
-      let sum = 0;
-      let adjusted = 0;
-      for (const b of lastBlobList) {
-        const v = stubArbitrate(b, { medianArea: stats.medianArea });
-        sum += v.n;
-        if (v.n !== 1) adjusted += 1;
-      }
-      totalCount = sum;
-      setStatus(
-        `IA stub: ${lastBlobList.length} blobs → ${sum} grãos (${adjusted} ajustados)`
-      );
-      updateHud(lastBlobList.length);
-    });
-  }
 
   btnTogglePanel.addEventListener("click", () => {
     const open = btnTogglePanel.getAttribute("aria-expanded") === "true";
@@ -1563,52 +596,30 @@ import { createYoloAssist } from "./yolo-assist.mjs";
     panelBody.hidden = open;
   });
 
-  btnSaveCfg.addEventListener("click", saveCfg);
-  if (btnSaveCfgYolo) btnSaveCfgYolo.addEventListener("click", saveCfg);
-  const restoreCfg = () => {
-    if (!loadCfg(false)) {
-      Object.assign(cfg, {
-        engineMode: "yolo",
-        yoloServiceUrl: "http://localhost:8765",
-        countMode: "belt",
-        assistMode: "off",
-        mode: "contrast",
-        threshold: 38,
-        minArea: 25,
-        maxArea: 2500,
-        linePos: 0.5,
-        roi: 0.55,
-        matchDist: 36,
-        morph: 1,
-        invert: false,
-        showMask: false,
-        showRoi: true,
-        direction: "ltr",
-      });
-      applyCfgToDOM();
-      updateEngineUI();
-      setStatus("Padrões restaurados");
-    }
-  };
-  btnLoadCfg.addEventListener("click", restoreCfg);
-  if (btnLoadCfgYolo) btnLoadCfgYolo.addEventListener("click", restoreCfg);
-  btnAuto.addEventListener("click", autoCalibrate);
-
-  window.addEventListener("beforeunload", () => {
-    if (stream) stopCamera();
-    if (yoloConnected) disconnectYolo();
+  btnSaveCfg.addEventListener("click", () => {
+    readControls();
+    saveCfg();
+  });
+  btnLoadCfg.addEventListener("click", () => {
+    Object.assign(cfg, DEFAULTS);
+    applyCfgToDOM();
+    pushConfig();
+    saveCfg(true);
+    render();
+    setStatus("Padrões restaurados");
   });
 
-  loadCfg(true);
-  if (!cfg.engineMode) cfg.engineMode = "yolo";
-  if (!cfg.countMode) cfg.countMode = "belt";
-  if (!cfg.assistMode) cfg.assistMode = "off";
+  window.addEventListener("resize", render);
+  window.addEventListener("beforeunload", () => {
+    if (connected) disconnect();
+  });
+  setInterval(() => {
+    if (connected) updateHud((lastState && lastState.boxes ? lastState.boxes.length : 0));
+  }, 1000);
+
+  loadCfg();
   applyCfgToDOM();
-  readControls();
   updateHud(0);
-  setStatus(
-    cfg.engineMode === "yolo"
-      ? "Pronto — conecte o YOLO (PC)"
-      : "Pronto — inicie a câmera"
-  );
+  updateValidation();
+  setConnectedUI(false);
 })();

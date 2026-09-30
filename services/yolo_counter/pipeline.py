@@ -19,16 +19,24 @@ class YoloCountPipeline:
         self,
         model_path: str,
         source: str | int = 0,
-        direction: str = "btt",
-        line_pos: float = 0.55,
-        conf: float = 0.22,
-        crop_belt: bool = True,
+        direction: str = "rtl",
+        line_pos: float = 0.5,
+        conf: float = 0.3,
+        crop_belt: bool = False,
+        roi: Optional[tuple[float, float, float, float]] = None,
+        lite: bool = False,
+        imgsz: Optional[int] = None,
+        frame_stride: Optional[int] = None,
     ):
         self.model = YOLO(model_path)
         self.source = source
         self.conf = conf
         self.counter = LineCounter(direction=direction, line_pos=line_pos)
-        self.tracker = CentroidTracker(max_dist=56.0, max_lost=25)
+        # lite: tracking um pouco mais tolerante (FPS baixo)
+        self.tracker = CentroidTracker(
+            max_dist=72.0 if lite else 56.0,
+            max_lost=35 if lite else 25,
+        )
         self.total = 0
         self.fps = 0.0
         self._cap: Optional[cv2.VideoCapture] = None
@@ -40,13 +48,26 @@ class YoloCountPipeline:
         self.last_frame: Optional[np.ndarray] = None
         self.model_warning: Optional[str] = None
         self.crop_belt = crop_belt
+        # roi em fracoes do frame (x0, y0, x1, y1): so a esteira entra na inferencia
+        self.roi = roi
         self._crop_box: Optional[tuple[int, int, int, int]] = None
+        self.lite = lite
+        # 320 deixa o comprimido (~27 px em 848 de largura) pequeno demais: contagem cai de 29 para 21/30
+        self.imgsz = imgsz if imgsz is not None else (416 if lite else 640)
+        self.frame_stride = frame_stride if frame_stride is not None else (2 if lite else 1)
+        self._stride_i = 0
+        self.jpeg_quality = 55 if lite else 80
 
     def open(self) -> None:
         src = int(self.source) if str(self.source).isdigit() else self.source
         self._cap = cv2.VideoCapture(src)
         if not self._cap.isOpened():
             raise RuntimeError(f"Nao abriu fonte: {self.source}")
+        if self.lite and str(self.source).isdigit():
+            # webcam: baixa resolucao para poupar RAM/CPU (Galaxy Book / 8 GB)
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self._cap.set(cv2.CAP_PROP_FPS, 15)
 
     def close(self) -> None:
         if self._cap:
@@ -63,7 +84,10 @@ class YoloCountPipeline:
         direction: Optional[str] = None,
         line_pos: Optional[float] = None,
         conf: Optional[float] = None,
+        roi: Optional[tuple[float, float, float, float]] = None,
     ) -> None:
+        if roi is not None:
+            self.roi = roi if roi[2] > roi[0] and roi[3] > roi[1] else None
         if direction is not None:
             self.counter.direction = direction
         if line_pos is not None:
@@ -89,9 +113,26 @@ class YoloCountPipeline:
         self.last_frame = frame
         self.frame_h, self.frame_w = frame.shape[:2]
 
+        # lite: processa 1 de N frames (ainda avanca tracking menos vezes)
+        self._stride_i += 1
+        if self.frame_stride > 1 and (self._stride_i % self.frame_stride) != 0:
+            now = time.time()
+            if self._last_ts:
+                inst = 1.0 / max(1e-3, now - self._last_ts)
+                self.fps = self.fps * 0.85 + inst * 0.15 if self.fps else inst
+            self._last_ts = now
+            return self._state()
+
         infer = frame
         ox = oy = 0
-        if self.crop_belt:
+        if self.roi is not None:
+            fx0, fy0, fx1, fy1 = self.roi
+            x0, y0 = int(fx0 * self.frame_w), int(fy0 * self.frame_h)
+            x1, y1 = int(fx1 * self.frame_w), int(fy1 * self.frame_h)
+            infer = frame[y0:y1, x0:x1]
+            self._crop_box = (x0, y0, x1, y1)
+            ox, oy = x0, y0
+        elif self.crop_belt:
             infer, (x0, y0, x1, y1) = crop_belt_bgr(frame)
             self._crop_box = (x0, y0, x1, y1)
             ox, oy = x0, y0
@@ -101,7 +142,7 @@ class YoloCountPipeline:
         results = self.model.predict(
             infer,
             conf=self.conf,
-            imgsz=640,
+            imgsz=self.imgsz,
             iou=0.45,
             verbose=False,
         )
@@ -118,7 +159,6 @@ class YoloCountPipeline:
                 raw_boxes.append((X1, Y1, X2, Y2, float(confs[i])))
 
         tracks = self.tracker.update(centers)
-        # associa track id ao box mais proximo
         boxes_out: list[dict[str, Any]] = []
         used = set()
         for t in tracks:
@@ -150,6 +190,8 @@ class YoloCountPipeline:
 
         delta = self.counter.count_frame(tracks, self.frame_w, self.frame_h)
         self.total += delta
+        for b in boxes_out:
+            b["counted"] = b["id"] in self.counter.counted_ids
         self._boxes = boxes_out
 
         now = time.time()
@@ -171,4 +213,8 @@ class YoloCountPipeline:
             "frame_h": self.frame_h,
             "paused": self.paused,
             "model_warning": self.model_warning,
+            "lite": self.lite,
+            "imgsz": self.imgsz,
+            "roi": list(self.roi) if self.roi else None,
+            "conf": self.conf,
         }

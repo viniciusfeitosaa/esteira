@@ -19,15 +19,31 @@
     </header>
 
     <main class="stage">
-      <div class="viewport" id="viewport">
-        <video id="video" playsinline autoplay muted></video>
-        <img id="yoloFrame" class="yolo-frame" alt="" hidden />
-        <canvas id="overlay" aria-hidden="true"></canvas>
-        <canvas id="process" class="offscreen" aria-hidden="true"></canvas>
-        <div class="viewport-hint" id="viewportHint">
-          Motor principal: <strong>YOLO no PC</strong>. Suba o serviço e toque em
-          <strong>Conectar YOLO</strong>. Clássico fica só como fallback.
+      <div class="stage-main">
+        <div class="viewport" id="viewport">
+          <img id="yoloFrame" class="yolo-frame" alt="" hidden />
+          <canvas id="overlay" aria-hidden="true"></canvas>
+          <div class="viewport-hint" id="viewportHint">
+            Suba o serviço no PC e toque em <strong>Conectar YOLO</strong>.
+          </div>
         </div>
+
+        <div class="toolbar" id="toolbar">
+          <button type="button" class="btn small" id="btnDrawArea" disabled>Desenhar área de contagem</button>
+          <button type="button" class="btn small" id="btnClearArea" disabled>Usar imagem inteira</button>
+          <label class="check">
+            <input type="checkbox" id="showConf" checked />
+            Mostrar confiança
+          </label>
+          <label class="check">
+            <input type="checkbox" id="dimOutside" checked />
+            Escurecer fora da área
+          </label>
+        </div>
+        <p class="tip" id="editHint">
+          O vídeo mostra exatamente o que o YOLO detecta: caixa verde = comprimido visto,
+          caixa azul = já contado. Arraste a <strong>linha amarela</strong> para mudar onde conta.
+        </p>
       </div>
 
       <aside class="hud">
@@ -37,7 +53,7 @@
         </div>
         <div class="metrics">
           <div>
-            <span class="metric-label">Na área</span>
+            <span class="metric-label">Vistos agora</span>
             <span class="metric-value" id="visibleValue">0</span>
           </div>
           <div>
@@ -66,10 +82,7 @@
         </div>
         <div class="actions">
           <button type="button" class="btn primary" id="btnYoloConnect">Conectar YOLO</button>
-          <button type="button" class="btn primary" id="btnStart" hidden>Iniciar câmera</button>
           <button type="button" class="btn" id="btnPause" disabled>Pausar contagem</button>
-          <button type="button" class="btn" id="btnSnap" disabled hidden>Contar agora</button>
-          <button type="button" class="btn" id="btnAssistCheck" disabled hidden>Verificar com IA</button>
           <button type="button" class="btn danger" id="btnReset" disabled>Zerar</button>
         </div>
       </aside>
@@ -77,108 +90,38 @@
 
     <section class="panel" id="panel">
       <button type="button" class="panel-toggle" id="btnTogglePanel" aria-expanded="false">
-        Calibrar
+        Configurar
         <span class="chevron" aria-hidden="true"></span>
       </button>
       <div class="panel-body" id="panelBody" hidden>
         <label class="field">
-          <span>Motor</span>
-          <select id="engineMode">
-            <option value="yolo" selected>YOLO (PC) — principal</option>
-            <option value="classic">Clássico (fallback browser)</option>
-          </select>
-        </label>
-        <label class="field" id="yoloUrlField">
           <span>URL do serviço YOLO</span>
           <input type="text" id="yoloServiceUrl" value="http://localhost:8765" />
-        </label>
-        <label class="field classic-only">
-          <span>Modo de contagem</span>
-          <select id="countMode">
-            <option value="belt" selected>Esteira (cruza a linha)</option>
-            <option value="instant">Instantâneo (quantos na tela)</option>
-          </select>
-        </label>
-        <label class="field classic-only">
-          <span>Modo de detecção</span>
-          <select id="mode">
-            <option value="contrast" selected>Contraste com a esteira (recomendado)</option>
-            <option value="local">Limiar local (iluminação irregular)</option>
-            <option value="absolute">Limiar absoluto (clássico)</option>
-          </select>
-        </label>
-        <label class="field classic-only">
-          <span id="thresholdTitle">Contraste sobre a esteira <em id="thresholdLabel">38</em></span>
-          <input type="range" id="threshold" min="8" max="120" value="38" />
-        </label>
-        <label class="field classic-only">
-          <span>Área mínima (px) <em id="minAreaLabel">25</em></span>
-          <input type="range" id="minArea" min="3" max="500" value="25" />
-        </label>
-        <label class="field classic-only">
-          <span>Área máxima (px) <em id="maxAreaLabel">2500</em></span>
-          <input type="range" id="maxArea" min="80" max="15000" value="2500" />
-        </label>
-        <label class="field">
-          <span>Posição da linha (%) <em id="linePosLabel">50</em></span>
-          <input type="range" id="linePos" min="10" max="90" value="50" />
-        </label>
-        <label class="field classic-only">
-          <span>Largura da faixa ROI (%) <em id="roiLabel">55</em></span>
-          <input type="range" id="roi" min="15" max="100" value="55" />
-        </label>
-        <label class="field classic-only">
-          <span>Sensibilidade de match <em id="matchDistLabel">36</em></span>
-          <input type="range" id="matchDist" min="10" max="100" value="36" />
-        </label>
-        <label class="field classic-only">
-          <span>Limpeza / separação <em id="morphLabel">1</em></span>
-          <input type="range" id="morph" min="0" max="4" value="1" />
-        </label>
-        <div class="field row classic-only">
-          <label class="check">
-            <input type="checkbox" id="invert" />
-            Inverter (objeto escuro)
-          </label>
-          <label class="check">
-            <input type="checkbox" id="showMask" />
-            Ver máscara
-          </label>
-          <label class="check">
-            <input type="checkbox" id="showRoi" checked />
-            Ver faixa ROI
-          </label>
-        </div>
-        <label class="field classic-only">
-          <span>Assistente IA (legado browser)</span>
-          <select id="assistMode">
-            <option value="off" selected>Off — só clássico</option>
-            <option value="doubt">Só dúvidas (YOLO ONNX / stub)</option>
-          </select>
         </label>
         <label class="field">
           <span>Direção da esteira</span>
           <select id="direction">
-            <option value="ltr">Esquerda → direita</option>
             <option value="rtl">Direita → esquerda</option>
+            <option value="ltr">Esquerda → direita</option>
             <option value="ttb">Cima → baixo</option>
             <option value="btt">Baixo → cima</option>
           </select>
         </label>
-        <div class="field row classic-only">
-          <button type="button" class="btn primary" id="btnAuto">Auto calibrar</button>
+        <label class="field">
+          <span>Posição da linha (%) <em id="linePosLabel">50</em></span>
+          <input type="range" id="linePos" min="5" max="95" value="50" />
+        </label>
+        <label class="field">
+          <span>Confiança mínima do YOLO (%) <em id="confLabel">30</em></span>
+          <input type="range" id="conf" min="10" max="80" value="30" />
+        </label>
+        <div class="field row">
           <button type="button" class="btn" id="btnSaveCfg">Salvar</button>
-          <button type="button" class="btn" id="btnLoadCfg">Restaurar</button>
+          <button type="button" class="btn" id="btnLoadCfg">Restaurar padrão</button>
         </div>
-        <div class="field row yolo-only">
-          <button type="button" class="btn" id="btnSaveCfgYolo">Salvar</button>
-          <button type="button" class="btn" id="btnLoadCfgYolo">Restaurar</button>
-        </div>
-        <p class="tip" id="tipText">
-          <strong>YOLO (PC):</strong> rode
-          <code>py -3.12 scripts/run_yolo_service.py --source 0</code>
-          e conecte. Meta de lote: erro ≤ 0,5% (N ≥ 200).
-          <strong>Clássico:</strong> fallback no browser; não é o motor de medicamentos.
+        <p class="tip">
+          No PC: <code>py -3.12 scripts/run_yolo_service.py --source 0</code>
+          (ou <code>scripts\run_lite.bat</code> no notebook de 8 GB). Meta de lote: erro ≤ 0,5% (N ≥ 200).
         </p>
       </div>
     </section>

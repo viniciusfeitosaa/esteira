@@ -13,6 +13,7 @@ datasets/pills/images/
 datasets/pills/labels/
 datasets/pills/data.yaml
 datasets/pills_belt/
+datasets/pills_fixed/
 runs/
 __pycache__/
 *.pyc
@@ -20,6 +21,7 @@ __pycache__/
 *.pt
 !models/.gitkeep
 models/*.pt
+!models/pill-nano.pt
 .cache/
 tests/fixtures/
 # ONNX versionado para Render / Pages com YOLO (~12 MB)
