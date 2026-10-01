@@ -88,7 +88,16 @@ def create_app(
             crop_belt=crop_belt,
         )
         pipeline.model_warning = warning
-        pipeline.open()
+        try:
+            pipeline.open()
+        except RuntimeError as exc:
+            # em outro PC o indice da camera muda: sobe num video de teste e a UI troca pelo botao Fonte
+            videos = list_videos()
+            if not videos:
+                raise
+            print(f"AVISO: {exc}. Usando o video de teste {videos[0]['name']}; escolha a camera no botao Fonte.")
+            pipeline.source = str(ROOT / videos[0]["path"])
+            pipeline.open()
         _broadcast_task = asyncio.create_task(_broadcast_loop())
         yield
         if _broadcast_task:
