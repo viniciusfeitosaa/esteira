@@ -64,6 +64,9 @@
   let countEvents = [];
   let sessionStart = 0;
   let fps = 0;
+  let camFps = 0;
+  // instante (relogio do servico) do frame exibido
+  let displayTs = 0;
   let frameLoop = 0;
 
   let drawMode = false;
@@ -172,7 +175,9 @@
     countValue.textContent = String(totalCount);
     visibleValue.textContent = String(visible);
     rateValue.textContent = String(ratePerMinute(now));
-    fpsValue.textContent = fps ? fps.toFixed(0) : "—";
+    const yoloFps = fps ? fps.toFixed(0) : "—";
+    fpsValue.textContent = camFps ? `${yoloFps} · cam ${camFps.toFixed(0)}` : yoloFps;
+    fpsValue.title = "Quadros por segundo analisados pelo YOLO · entregues pela câmera";
     sessionValue.textContent = sessionStart ? formatSession(now - sessionStart) : "0:00";
   }
 
@@ -261,10 +266,20 @@
     }
 
     const boxes = (lastState && lastState.boxes) || [];
+    // a tela mostra um frame mais novo que o da inferencia: adianta as caixas com a esteira
+    let sx = 0;
+    let sy = 0;
+    if (lastState && lastState.vel && lastState.ts && displayTs) {
+      const lag = displayTs - lastState.ts;
+      if (lag > 0 && lag < 1) {
+        sx = lastState.vel[0] * lag;
+        sy = lastState.vel[1] * lag;
+      }
+    }
     octx.font = "12px ui-monospace, monospace";
     for (const b of boxes) {
-      const [x, y] = fracToCss(m, b.x1 / frameSize.w, b.y1 / frameSize.h);
-      const [x2, y2] = fracToCss(m, b.x2 / frameSize.w, b.y2 / frameSize.h);
+      const [x, y] = fracToCss(m, (b.x1 + sx) / frameSize.w, (b.y1 + sy) / frameSize.h);
+      const [x2, y2] = fracToCss(m, (b.x2 + sx) / frameSize.w, (b.y2 + sy) / frameSize.h);
       const color = b.counted ? "#5aa9ff" : "#3ecf8e";
       octx.strokeStyle = color;
       octx.lineWidth = 2;
@@ -448,6 +463,7 @@
     const now = performance.now();
     for (let i = 0; i < totalCount - prev; i++) countEvents.push(now);
     fps = Number(state.fps) || fps;
+    camFps = Number(state.cam_fps) || 0;
     frameSize = { w: state.frame_w || frameSize.w, h: state.frame_h || frameSize.h };
     paused = !!state.paused;
     if (state.no_signal && !(lastState && lastState.no_signal)) {
@@ -472,17 +488,26 @@
       try {
         const res = await fetch(`${baseUrl()}/frame.jpg?raw=1&t=${Date.now()}`, { cache: "no-store" });
         if (res.ok) {
+          const ts = Number(res.headers.get("X-Frame-Ts"));
           const url = URL.createObjectURL(await res.blob());
           const prev = yoloFrame.src;
           yoloFrame.src = url;
+          try {
+            await yoloFrame.decode();
+          } catch {
+            /* frame corrompido: segue com o proximo */
+          }
+          displayTs = Number.isFinite(ts) ? ts : 0;
           yoloFrame.hidden = false;
           viewport.classList.add("live");
           if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+          render();
         }
       } catch {
         /* falha transitoria */
       }
-      const wait = Math.max(30, 80 - (performance.now() - t0));
+      const period = lastState && lastState.lite ? 66 : 33;
+      const wait = Math.max(5, period - (performance.now() - t0));
       await new Promise((r) => setTimeout(r, wait));
     }
   }

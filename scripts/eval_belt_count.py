@@ -24,6 +24,8 @@ from services.yolo_counter.white_pill import detect_white_pills  # noqa: E402
 
 def list_videos(folder: Path) -> list[Path]:
     exts = {".mp4", ".mov", ".avi", ".mkv"}
+    if folder.is_file():
+        return [folder.resolve()]
     return sorted({p.resolve() for p in folder.iterdir() if p.suffix.lower() in exts}, key=lambda p: p.name.lower())
 
 
@@ -33,7 +35,7 @@ def count_video(detect, path: Path, args, save_dir: Path | None) -> dict:
         raise RuntimeError(f"nao abriu {path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     counter = LineCounter(direction=args.direction, line_pos=args.line_pos)
-    tracker = CentroidTracker(max_dist=args.max_dist, max_lost=args.max_lost)
+    tracker = CentroidTracker(max_dist=args.max_dist, max_lost=args.max_lost, direction=args.direction)
     writer = None
     total = frames = used = max_visible = 0
     unique_ids: set[int] = set()
@@ -45,6 +47,9 @@ def count_video(detect, path: Path, args, save_dir: Path | None) -> dict:
         if (frames - 1) % args.stride:
             continue
         used += 1
+        if args.resize:
+            fh, fw = frame.shape[:2]
+            frame = cv2.resize(frame, (args.resize, round(fh * args.resize / fw)))
         h, w = frame.shape[:2]
         ox = oy = 0
         infer = frame
@@ -56,6 +61,8 @@ def count_video(detect, path: Path, args, save_dir: Path | None) -> dict:
             infer, (ox, oy, _, _) = crop_belt_bgr(frame)
         boxes = [(x1 + ox, y1 + oy, x2 + ox, y2 + oy) for x1, y1, x2, y2 in detect(infer)]
         centers = [((b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for b in boxes]
+        if not args.fixed_radius:
+            tracker.fit_pill_size([max(b[2] - b[0], b[3] - b[1]) for b in boxes])
         tracks = tracker.update(centers)
         unique_ids.update(t.id for t in tracks)
         total += counter.count_frame(tracks, w, h)
@@ -104,6 +111,8 @@ def main():
     ap.add_argument("--roi", type=float, nargs=4, default=None)
     ap.add_argument("--crop-belt", action="store_true")
     ap.add_argument("--save-dir", type=Path, default=None)
+    ap.add_argument("--resize", type=int, default=None, help="largura do frame (simula outra webcam)")
+    ap.add_argument("--fixed-radius", action="store_true", help="nao adapta --max-dist ao tamanho do comprimido")
     args = ap.parse_args()
 
     vids = list_videos(args.videos)

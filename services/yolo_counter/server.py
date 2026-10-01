@@ -111,6 +111,7 @@ def create_app(
         allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Frame-Ts"],
     )
 
     @app.get("/health")
@@ -184,14 +185,16 @@ def create_app(
     @app.get("/frame.jpg")
     def frame_jpg(raw: bool = False):
         assert pipeline
-        if pipeline.last_frame is None:
+        frame, ts = pipeline.display_frame()
+        if frame is None:
             return Response(status_code=404)
-        frame = pipeline.last_frame.copy()
+        headers = {"X-Frame-Ts": f"{ts:.4f}", "Cache-Control": "no-store"}
         if raw:
             ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _jpeg_quality])
             if not ok:
                 return Response(status_code=500)
-            return Response(content=buf.tobytes(), media_type="image/jpeg")
+            return Response(content=buf.tobytes(), media_type="image/jpeg", headers=headers)
+        frame = frame.copy()
         # draw line
         h, w = frame.shape[:2]
         pos = pipeline.counter.line_pos
@@ -223,7 +226,7 @@ def create_app(
         )
         if not ok:
             return Response(status_code=500)
-        return Response(content=buf.tobytes(), media_type="image/jpeg")
+        return Response(content=buf.tobytes(), media_type="image/jpeg", headers=headers)
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
@@ -277,4 +280,8 @@ async def _broadcast_loop():
                     dead.append(ws)
             for ws in dead:
                 clients.discard(ws)
+            # ao vivo step() ja espera o proximo frame da camera; dormir aqui so atrasaria a inferencia
+            if pipeline.is_live:
+                await asyncio.sleep(0)
+                continue
         await asyncio.sleep(_broadcast_interval)

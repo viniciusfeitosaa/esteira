@@ -33,7 +33,7 @@ py -3.12 scripts/run_yolo_service.py --source 0 --direction rtl --lite
 # ou: scripts\run_lite.bat
 ```
 
-Lite usa `imgsz=416`, processa 1 de 2 frames, reduz JPEG/WS. Feche apps pesados; **não treine** nessa máquina.
+Lite usa `imgsz=480`, processa 1 de 2 frames, reduz JPEG/WS. Feche apps pesados; **não treine** nessa máquina.
 
 Registro de etapas: [`docs/ETAPAS.md`](docs/ETAPAS.md) · mapa: [`MAPA-DE-BORDO.md`](MAPA-DE-BORDO.md)
 

@@ -1,7 +1,7 @@
 # Etapas do projeto Esteira — registro completo
 
 Documento para acompanhar **cada fase** do desenvolvimento.  
-Última atualização: **2026-09-28**.
+Última atualização: **2026-09-30**.
 
 ---
 
@@ -26,6 +26,7 @@ Documento para acompanhar **cada fase** do desenvolvimento.
 | 14 | Meta 0,5% em lote N≥200 | Em aberto | mais vídeo + validação física |
 | 15 | Novo comprimido + webcam fixa | Feito | `pills_fixed` + sintéticos, direção **rtl** |
 | 16 | UI só YOLO + área de contagem editável | Feito | sem limiarização; desenhar área / arrastar linha |
+| 17 | Imagem fluida ao vivo + rastreio pela esteira | Feito | câmera em thread; contagem 30/30 até ~2,4 fps |
 
 ---
 
@@ -327,6 +328,76 @@ poder escolher a área de contagem.
 - Área, linha, direção e confiança ficam salvas no navegador (`localStorage`) e são reenviadas ao
   conectar.
 - Serviço: `/frame.jpg?raw=1` e campo `counted` em cada caixa do estado.
+
+---
+
+## Etapa 17 — Imagem fluida ao vivo e contagem que não perde na linha (2026-09-30)
+
+**Relato (teste ao vivo em outro PC):** com o YOLO rodando o FPS da câmera caía e a imagem
+travava; o comprimido era detectado mas às vezes passava pela linha sem contar.
+
+**Causas**
+- A câmera era lida no mesmo laço da inferência: enquanto o YOLO rodava ninguém lia o driver, o
+  buffer enchia e a imagem chegava atrasada e aos saltos. O modo lite ainda lia e jogava fora metade
+  dos frames.
+- O rastreador casava cada comprimido com o centro mais próximo do frame anterior (raio fixo de
+  56 px). Com FPS baixo ou esteira rápida o mais próximo vira o comprimido **de trás**, e o da frente
+  nasce com ID novo já depois da linha: nunca é contado. O raio fixo em pixels também não acompanha
+  webcam de resolução maior (comprimido e deslocamento maiores em px).
+
+**O que mudou**
+- `camera_reader.py`: thread própria lê a câmera sem parar e guarda só o frame mais recente (MJPG,
+  buffer 1). O YOLO pega o frame mais novo quando termina o anterior; a tela mostra a câmera no FPS
+  dela. Um núcleo da CPU fica livre para câmera/servidor/navegador.
+- `centroid_track.py`: a esteira move todos juntos, então a cada frame estima-se **um deslocamento
+  comum** (votação entre pares, só no sentido da contagem) e cada detecção é casada com a posição
+  **prevista**. Rastro perdido anda com a velocidade da esteira (por poucos comprimidos); rastro visto
+  agora tem prioridade sobre um perdido há tempo; raios proporcionais ao tamanho do comprimido.
+- Tempo real entre frames (`dt`) entra na previsão: frame atrasado não confunde o rastreador.
+- UI busca ~30 quadros/s (lite ~15), adianta as caixas pela velocidade da esteira até o frame
+  exibido e mostra `FPS YOLO · cam N`.
+
+**Medição (5 vídeos de `samples/videos`, gabarito 30)** — `eval_belt_count.py`; `--stride N`
+simula FPS baixo / esteira rápida, `--resize 1920` simula webcam Full HD:
+
+| Cenário | Rastreador antigo | Novo |
+|---|---|---|
+| stride 2 / 8 (≈29 / 7 fps) | 30 / 30 | 30 / 30 |
+| stride 16 (≈3,6 fps) | 30 | 30 |
+| stride 24 (≈2,4 fps) | **28** (perde 2 na linha) | 30 |
+| 1920 px, stride 8 | 30 | 30 |
+| lite 416, stride 8 | — | 30 |
+
+A esteira dos vídeos de amostra é lenta; ao vivo (esteira mais rápida e/ou câmera em resolução
+maior) o deslocamento por frame é maior e o antigo cai no caso de stride 24 bem antes.
+
+Fila sintética (comprimidos a 40 px andando 30 px/frame, `tests/test_centroid_track.py`): antigo 0/8,
+novo 8/8.
+
+---
+
+## Etapa 18 — Vídeo Iriun Webcam (2026-09-30)
+
+**Dados**: `Screen_Recording_20260930_200343_Iriun Webcam` (4 passagens, gabarito por slit-scan
+6/8/9/9 = 32). `scripts/add_video_dataset.py` gera `datasets/pills_extra`: frames só entram quando o
+detector clássico (`white_pill`) e o YOLO atual **concordam** (IoU ≥ 0,4, nenhuma caixa YOLO
+sobrando com conf ≥ 0,45), mais cópias aumentadas e sintéticos copy-paste com recortes do próprio
+vídeo. `datasets/pills_combined.yaml` junta `pills_fixed` + `pills_extra` (113 imagens reais de
+treino, 27 de validação).
+
+**Treino**: `runs/pill-nano-v3` (`PILL_RUN`, `PILL_SAVE_PERIOD=1`, `PILL_NO_INSTALL=1`); modelo
+escolhido pela **contagem**, não pelo mAP. Melhor: época 4 → `models/pill-nano.pt`
+(backup do anterior em `models/pill-nano-v2.pt`, cópia em `models/pill-nano-v3.pt`).
+
+| Modelo | Iriun 640 (stride 2/4/8) | Iriun lite | Amostras antigas (30) |
+|---|---|---|---|
+| v2 (anterior) | 32 / 31 / 31 | 32 (416) | 30 |
+| v3 época 8 | 32 / 32 / 31 | 32 (416) | 29 |
+| **v3 época 4** | **32 / 32 / 32** | 33 (416) · **32 / 32 (480, stride 4/8)** | **30** (480 e 512) |
+
+Em 416 px a época 4 cria uma caixa fantasma entre comprimidos encostados (+1). Em 480 isso some,
+então o **lite passou para `imgsz=480`**. Subir o conf (0,45/0,5) não resolveu e perdia comprimidos
+de grupos.
 
 ---
 

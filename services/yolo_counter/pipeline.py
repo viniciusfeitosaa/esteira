@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any, Optional
 
 import cv2
 import numpy as np
+import torch
 from ultralytics import YOLO
 
 from .belt_roi import crop_belt_bgr
+from .camera_reader import CameraReader
 from .sources import camera_backend, describe, is_camera
 from .centroid_track import CentroidTracker
 from .line_count import LineCounter, TrackBox
+
+# um nucleo fica para a thread da camera, o servidor e o navegador (senao a imagem engasga)
+torch.set_num_threads(max(1, (os.cpu_count() or 2) - 1))
 
 
 class YoloCountPipeline:
@@ -34,20 +40,21 @@ class YoloCountPipeline:
         self.source = source
         self.conf = conf
         self.counter = LineCounter(direction=direction, line_pos=line_pos)
-        # lite: tracking um pouco mais tolerante (FPS baixo)
-        self.tracker = CentroidTracker(
-            max_dist=72.0 if lite else 56.0,
-            max_lost=35 if lite else 25,
-        )
+        # raios se ajustam ao tamanho do comprimido (fit_pill_size); estes valem ate a 1a deteccao
+        self.tracker = CentroidTracker(max_dist=56.0, max_lost=35 if lite else 25, direction=direction)
         self.total = 0
         self.fps = 0.0
         self._cap: Optional[cv2.VideoCapture] = None
+        self._reader: Optional[CameraReader] = None
+        self._seq = 0
         self._last_ts = 0.0
         self._boxes: list[dict[str, Any]] = []
         self.paused = False
         self.frame_w = 640
         self.frame_h = 480
         self.last_frame: Optional[np.ndarray] = None
+        # instante (monotonic) do frame que gerou as caixas atuais
+        self.frame_ts = 0.0
         self.model_warning: Optional[str] = None
         self.crop_belt = crop_belt
         # roi em fracoes do frame (x0, y0, x1, y1): so a esteira entra na inferencia
@@ -55,9 +62,13 @@ class YoloCountPipeline:
         self._crop_box: Optional[tuple[int, int, int, int]] = None
         self.lite = lite
         # 320 deixa o comprimido (~27 px em 848 de largura) pequeno demais: contagem cai de 29 para 21/30
-        self.imgsz = imgsz if imgsz is not None else (416 if lite else 640)
+        self.imgsz = imgsz if imgsz is not None else (480 if lite else 640)
+        # so para video: camera ja descarta sozinha o que a inferencia nao alcanca
         self.frame_stride = frame_stride if frame_stride is not None else (2 if lite else 1)
         self._stride_i = 0
+        self._video_fps = 30.0
+        self._video_frames = 0
+        self._video_last_infer = 0
         self.jpeg_quality = 55 if lite else 80
         # step() roda numa thread do servidor; a troca de camera nao pode cair no meio dele
         self._lock = threading.Lock()
@@ -65,22 +76,40 @@ class YoloCountPipeline:
         self.ended = False
         self.no_signal = False
 
+    @property
+    def is_live(self) -> bool:
+        return self._reader is not None
+
     def open(self) -> None:
         self.ended = False
         self.no_signal = False
         if is_camera(self.source):
-            self._cap = cv2.VideoCapture(int(self.source), camera_backend())
+            cap = cv2.VideoCapture(int(self.source), camera_backend())
+            if not cap.isOpened():
+                raise RuntimeError(f"Nao abriu fonte: {self.source}")
+            # MJPG: em DirectShow o formato padrao (YUY2) limita muitas webcams a 5-10 fps em 720p+
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if self.lite:
+                # webcam: baixa resolucao para poupar RAM/CPU (Galaxy Book / 8 GB)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            self._cap = cap
+            self._reader = CameraReader(cap)
+            self._seq = 0
         else:
             self._cap = cv2.VideoCapture(self.source)
-        if not self._cap.isOpened():
-            raise RuntimeError(f"Nao abriu fonte: {self.source}")
-        if self.lite and str(self.source).isdigit():
-            # webcam: baixa resolucao para poupar RAM/CPU (Galaxy Book / 8 GB)
-            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self._cap.set(cv2.CAP_PROP_FPS, 15)
+            if not self._cap.isOpened():
+                raise RuntimeError(f"Nao abriu fonte: {self.source}")
+            self._video_fps = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
+            self._video_frames = 0
+            self._video_last_infer = 0
 
     def close(self) -> None:
+        if self._reader:
+            self._reader.stop()
+            self._reader = None
         if self._cap:
             self._cap.release()
             self._cap = None
@@ -96,11 +125,15 @@ class YoloCountPipeline:
             self.source = source
             try:
                 self.open()
-                ok, _ = self._cap.read() if self._cap else (False, None)
+                if self._reader:
+                    _, frame, _ = self._reader.wait_newer(0, timeout=3.0)
+                    ok = frame is not None
+                else:
+                    ok, _ = self._cap.read() if self._cap else (False, None)
+                    if ok:
+                        self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 if not ok:
                     raise RuntimeError(f"Fonte sem imagem: {source}")
-                if not is_camera(source):
-                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             except RuntimeError:
                 self.close()
                 self.source = previous
@@ -114,6 +147,7 @@ class YoloCountPipeline:
             self.last_frame = None
             self._boxes = []
             self._stride_i = 0
+            self._last_ts = 0.0
 
     def reset(self) -> None:
         with self._lock:
@@ -125,6 +159,8 @@ class YoloCountPipeline:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 self.ended = False
                 self._stride_i = 0
+                self._video_frames = 0
+                self._video_last_infer = 0
 
     def set_config(
         self,
@@ -137,14 +173,52 @@ class YoloCountPipeline:
             self.roi = roi if roi[2] > roi[0] and roi[3] > roi[1] else None
         if direction is not None:
             self.counter.direction = direction
+            if self.tracker.direction != direction:
+                self.tracker.reset()
+                self.tracker.direction = direction
         if line_pos is not None:
             self.counter.line_pos = float(line_pos)
         if conf is not None:
             self.conf = float(conf)
 
+    def display_frame(self) -> tuple[Optional[np.ndarray], float]:
+        """Frame para a tela: ao vivo e o mais recente da camera (fluido), nao o da inferencia."""
+        if self._reader is not None:
+            _, frame, ts = self._reader.latest()
+            if frame is not None:
+                return frame, ts
+        return self.last_frame, self.frame_ts
+
     def step(self) -> dict[str, Any]:
         with self._lock:
             return self._step()
+
+    def _next_frame(self) -> tuple[Optional[np.ndarray], float, float]:
+        """(frame, instante, dt desde o frame processado anterior); frame None = nada novo."""
+        if self._reader is not None:
+            seq, frame, ts = self._reader.wait_newer(self._seq, timeout=0.5)
+            if frame is None or seq == self._seq:
+                if self._reader.failed:
+                    self.no_signal = True
+                return None, 0.0, 0.0
+            self._seq = seq
+            dt = ts - self.frame_ts if self.frame_ts else 1.0 / 30
+            return frame, ts, dt
+        assert self._cap is not None
+        ok, frame = self._cap.read()
+        if not ok or frame is None:
+            self.ended = True
+            return None, 0.0, 0.0
+        self._video_frames += 1
+        self.last_frame = frame
+        self.frame_ts = time.monotonic()
+        # lite: processa 1 de N frames do video
+        self._stride_i += 1
+        if self.frame_stride > 1 and (self._stride_i % self.frame_stride) != 0:
+            return None, 0.0, 0.0
+        n = self._video_frames - self._video_last_infer
+        self._video_last_infer = self._video_frames
+        return frame, self.frame_ts, n / self._video_fps
 
     def _step(self) -> dict[str, Any]:
         if not self._cap:
@@ -152,28 +226,20 @@ class YoloCountPipeline:
         assert self._cap is not None
 
         if self.paused or self.ended:
+            if self._reader is not None:
+                # pausado: continua mostrando a camera, sem inferencia
+                time.sleep(0.05)
             return self._state()
 
-        ok, frame = self._cap.read()
-        if not ok or frame is None:
-            if not is_camera(self.source):
-                self.ended = True
+        frame, ts, dt = self._next_frame()
+        if frame is None:
             return self._state()
 
         self.last_frame = frame
+        self.frame_ts = ts
         self.frame_h, self.frame_w = frame.shape[:2]
         # Iriun/iVCam sem o app do celular conectado entregam uma tela preta com aviso
         self.no_signal = float(frame[::8, ::8].mean()) < 8
-
-        # lite: processa 1 de N frames (ainda avanca tracking menos vezes)
-        self._stride_i += 1
-        if self.frame_stride > 1 and (self._stride_i % self.frame_stride) != 0:
-            now = time.time()
-            if self._last_ts:
-                inst = 1.0 / max(1e-3, now - self._last_ts)
-                self.fps = self.fps * 0.85 + inst * 0.15 if self.fps else inst
-            self._last_ts = now
-            return self._state()
 
         infer = frame
         ox = oy = 0
@@ -210,7 +276,8 @@ class YoloCountPipeline:
                 centers.append(((X1 + X2) / 2, (Y1 + Y2) / 2))
                 raw_boxes.append((X1, Y1, X2, Y2, float(confs[i])))
 
-        tracks = self.tracker.update(centers)
+        self.tracker.fit_pill_size([max(b[2] - b[0], b[3] - b[1]) for b in raw_boxes])
+        tracks = self.tracker.update(centers, dt=dt)
         boxes_out: list[dict[str, Any]] = []
         used = set()
         for t in tracks:
@@ -258,7 +325,11 @@ class YoloCountPipeline:
             "type": "state",
             "total": self.total,
             "fps": round(self.fps, 1),
+            "cam_fps": round(self._reader.fps, 1) if self._reader else None,
             "boxes": self._boxes,
+            # velocidade da esteira (px/s) e instante das caixas: a UI adianta as caixas ate o frame exibido
+            "vel": [round(v, 1) for v in self.tracker.vel] if self.is_live else None,
+            "ts": self.frame_ts,
             "line_pos": self.counter.line_pos,
             "direction": self.counter.direction,
             "frame_w": self.frame_w,

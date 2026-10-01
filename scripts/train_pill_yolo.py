@@ -6,6 +6,8 @@ Fine-tune completo: PILL_TRAIN_FULL=1
 Usa models/pill-nano.pt como base se existir (adaptacao ao dominio esteira).
 Override YAML: PILL_DATA=datasets/pills_fixed/data.yaml
 Overrides opcionais: PILL_EPOCHS, PILL_IMGSZ, PILL_BATCH, PILL_BASE (pesos iniciais)
+PILL_RUN=nome (pasta em runs/), PILL_SAVE_PERIOD=1 (checkpoint por epoca: escolher pela
+contagem com eval_belt_count.py, nao pelo mAP), PILL_NO_INSTALL=1 (nao troca models/pill-nano.pt)
 Antes de sobrescrever, o modelo anterior e salvo em models/pill-nano.prev.pt
 """
 
@@ -38,14 +40,11 @@ def main():
             "Ver docs/CAPTURE-PILLS.md"
         )
     text = data.read_text(encoding="utf-8")
-    abs_path = data.parent.as_posix()
-    lines = []
-    for line in text.splitlines():
-        if line.startswith("path:"):
-            lines.append(f"path: {abs_path}")
-        else:
-            lines.append(line)
-    data.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if "path:" in text:
+        abs_path = data.parent.as_posix()
+        lines = [f"path: {abs_path}" if ln.startswith("path:") else ln for ln in text.splitlines()]
+        data.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    run = os.environ.get("PILL_RUN", "").strip() or "pill-nano"
 
     OUT.mkdir(exist_ok=True)
     full = os.environ.get("PILL_TRAIN_FULL", "").strip() in {"1", "true", "yes"}
@@ -55,9 +54,11 @@ def main():
     common = dict(
         data=str(data),
         project=str(ROOT / "runs"),
-        name="pill-nano",
+        name=run,
         exist_ok=True,
         workers=0,
+        save_period=_env_int("PILL_SAVE_PERIOD", -1),
+        close_mosaic=_env_int("PILL_CLOSE_MOSAIC", 10),
         hsv_v=0.3,
         degrees=5.0,
         translate=0.05,
@@ -82,9 +83,12 @@ def main():
             device="cpu",
             **common,
         )
-    best = ROOT / "runs" / "pill-nano" / "weights" / "best.pt"
+    best = ROOT / "runs" / run / "weights" / "best.pt"
     if not best.exists():
         raise SystemExit("best.pt nao gerado")
+    if os.environ.get("PILL_NO_INSTALL", "").strip() in {"1", "true", "yes"}:
+        print("PILL_NO_INSTALL: modelo em", best)
+        return
     dest = OUT / "pill-nano.pt"
     if dest.exists():
         shutil.copy2(dest, OUT / "pill-nano.prev.pt")

@@ -44,7 +44,7 @@ def main():
     p.add_argument(
         "--lite",
         action="store_true",
-        help="Modo economia: imgsz 416, stride 2, WS mais lento (8 GB RAM)",
+        help="Modo economia: imgsz 480, webcam 640x480, 1 de 2 frames em video de teste (8 GB RAM)",
     )
     args = p.parse_args()
     source: str | int = int(args.source) if str(args.source).isdigit() else args.source
@@ -64,7 +64,7 @@ def main():
         f"ws://localhost:{args.port}/ws"
     )
     if args.lite:
-        print("Lite: imgsz=416, processa 1/2 frames, preview JPEG 55, WS ~12 Hz")
+        print("Lite: imgsz=480, processa 1/2 frames, preview JPEG 55, WS ~12 Hz")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
