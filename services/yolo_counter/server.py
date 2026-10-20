@@ -183,9 +183,9 @@ def create_app(
         return {"paused": pipeline.paused}
 
     @app.get("/frame.jpg")
-    def frame_jpg(raw: bool = False):
+    def frame_jpg(raw: bool = False, sync: bool = False):
         assert pipeline
-        frame, ts = pipeline.display_frame()
+        frame, ts = pipeline.display_frame(synced=sync)
         if frame is None:
             return Response(status_code=404)
         headers = {"X-Frame-Ts": f"{ts:.4f}", "Cache-Control": "no-store"}

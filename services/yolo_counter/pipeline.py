@@ -55,6 +55,9 @@ class YoloCountPipeline:
         self.last_frame: Optional[np.ndarray] = None
         # instante (monotonic) do frame que gerou as caixas atuais
         self.frame_ts = 0.0
+        # frame cuja inferencia ja terminou (casa com self._boxes); last_frame pode estar no meio do predict
+        self._synced_frame: Optional[np.ndarray] = None
+        self._synced_ts = 0.0
         self.model_warning: Optional[str] = None
         self.crop_belt = crop_belt
         # roi em fracoes do frame (x0, y0, x1, y1): so a esteira entra na inferencia
@@ -145,6 +148,8 @@ class YoloCountPipeline:
             if not is_camera(source) or not is_camera(previous):
                 self.total = 0
             self.last_frame = None
+            self._synced_frame = None
+            self._synced_ts = 0.0
             self._boxes = []
             self._stride_i = 0
             self._last_ts = 0.0
@@ -181,8 +186,14 @@ class YoloCountPipeline:
         if conf is not None:
             self.conf = float(conf)
 
-    def display_frame(self) -> tuple[Optional[np.ndarray], float]:
-        """Frame para a tela: ao vivo e o mais recente da camera (fluido), nao o da inferencia."""
+    def display_frame(self, synced: bool = False) -> tuple[Optional[np.ndarray], float]:
+        """Frame para a tela.
+
+        synced: o frame das caixas atuais (caixa colada no comprimido, imagem no ritmo do YOLO).
+        Senao, ao vivo, o mais recente da camera (fluido; as caixas chegam atrasadas).
+        """
+        if synced and self._synced_frame is not None:
+            return self._synced_frame, self._synced_ts
         if self._reader is not None:
             _, frame, ts = self._reader.latest()
             if frame is not None:
@@ -312,6 +323,8 @@ class YoloCountPipeline:
         for b in boxes_out:
             b["counted"] = b["id"] in self.counter.counted_ids
         self._boxes = boxes_out
+        self._synced_frame = frame
+        self._synced_ts = ts
 
         now = time.time()
         if self._last_ts:

@@ -38,6 +38,7 @@
   const confLabel = $("confLabel");
   const showConfEl = $("showConf");
   const dimOutsideEl = $("dimOutside");
+  const smoothVideoEl = $("smoothVideo");
   const editHint = $("editHint");
 
   const octx = overlay.getContext("2d");
@@ -50,6 +51,8 @@
     roi: null, // [x0, y0, x1, y1] em fracoes do frame; null = imagem inteira
     showConf: true,
     dimOutside: true,
+    // false: mostra o frame da inferencia (caixa colada no comprimido); true: frame mais novo da camera
+    smoothVideo: false,
     expectedLot: 200,
   };
   const cfg = { ...DEFAULTS };
@@ -100,6 +103,7 @@
     confLabel.textContent = confEl.value;
     showConfEl.checked = cfg.showConf;
     dimOutsideEl.checked = cfg.dimOutside;
+    smoothVideoEl.checked = cfg.smoothVideo;
     expectedLotEl.value = String(cfg.expectedLot);
   }
 
@@ -110,6 +114,7 @@
     cfg.conf = Number(confEl.value) / 100;
     cfg.showConf = showConfEl.checked;
     cfg.dimOutside = dimOutsideEl.checked;
+    cfg.smoothVideo = smoothVideoEl.checked;
     cfg.expectedLot = Math.max(1, Number(expectedLotEl.value) || 200);
     linePosLabel.textContent = linePosEl.value;
     confLabel.textContent = confEl.value;
@@ -269,7 +274,7 @@
     // a tela mostra um frame mais novo que o da inferencia: adianta as caixas com a esteira
     let sx = 0;
     let sy = 0;
-    if (lastState && lastState.vel && lastState.ts && displayTs) {
+    if (cfg.smoothVideo && lastState && lastState.vel && lastState.ts && displayTs) {
       const lag = displayTs - lastState.ts;
       if (lag > 0 && lag < 1) {
         sx = lastState.vel[0] * lag;
@@ -486,7 +491,8 @@
     while (connected && token === frameLoop) {
       const t0 = performance.now();
       try {
-        const res = await fetch(`${baseUrl()}/frame.jpg?raw=1&t=${Date.now()}`, { cache: "no-store" });
+        const sync = cfg.smoothVideo ? "" : "&sync=1";
+        const res = await fetch(`${baseUrl()}/frame.jpg?raw=1${sync}&t=${Date.now()}`, { cache: "no-store" });
         if (res.ok) {
           const ts = Number(res.headers.get("X-Frame-Ts"));
           const url = URL.createObjectURL(await res.blob());
@@ -728,7 +734,7 @@
       render();
     })
   );
-  [showConfEl, dimOutsideEl].forEach((el) =>
+  [showConfEl, dimOutsideEl, smoothVideoEl].forEach((el) =>
     el.addEventListener("change", () => {
       readControls();
       render();
