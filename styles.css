@@ -1,16 +1,31 @@
+/* ============================================================
+   ESTEIRA — tema Windows 98/2000 autêntico
+   Cinza-prata fosco chapado, relevo clássico de 2px, texto
+   pequeno e denso. Sem brilho, sem vidro, sem neon.
+   (Somente estética — nenhuma regra muda o comportamento.)
+   ============================================================ */
 :root {
-  --bg: #0b0f0c;
-  --bg-elevated: #141a16;
-  --ink: #e8f0ea;
-  --muted: #8a9a8e;
-  --accent: #3ecf8e;
-  --accent-dim: rgba(62, 207, 142, 0.18);
-  --danger: #e45757;
+  --silver: #c0c0c0;
+  --silver-hi: #ffffff;
+  --silver-mid: #dfdfdf;
+  --silver-lo: #808080;
+  --silver-edge: #0a0a0a;
+  --ink: #000000;
+  --ink-soft: #222222;
+  --muted: #444444;
+  --accent: #008000;
+  --amber: #b26a00;
+  --danger: #a00000;
   --line: #f2d45c;
-  --border: rgba(232, 240, 234, 0.12);
-  --radius: 14px;
-  --font: "Segoe UI", system-ui, sans-serif;
-  --mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
+  --border: #808080;
+  --radius: 0;
+  --font: Tahoma, Verdana, "MS Sans Serif", sans-serif;
+  --mono: Consolas, "Courier New", monospace;
+  /* relevo clássico: branco/cinza claro x cinza escuro/preto */
+  --raised: inset -1px -1px 0 var(--silver-edge), inset 1px 1px 0 var(--silver-hi),
+    inset -2px -2px 0 var(--silver-lo), inset 2px 2px 0 var(--silver-mid);
+  --sunken: inset -1px -1px 0 var(--silver-hi), inset 1px 1px 0 var(--silver-lo),
+    inset -2px -2px 0 var(--silver-mid), inset 2px 2px 0 var(--silver-edge);
 }
 
 *,
@@ -23,9 +38,10 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background: radial-gradient(1200px 700px at 20% -10%, #1a2a20 0%, var(--bg) 55%);
+  background: var(--silver);
   color: var(--ink);
   font-family: var(--font);
+  font-size: 12px;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -33,71 +49,110 @@ body {
   min-height: 100dvh;
 }
 
+/* a página inteira é a janela do programa */
 .app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 12px 12px calc(24px + env(safe-area-inset-bottom));
+  max-width: 1120px;
+  margin: 8px auto;
+  padding: 3px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 100dvh;
+  gap: 8px;
+  min-height: calc(100dvh - 16px);
+  background: var(--silver);
+  box-shadow: var(--raised), 2px 2px 10px rgba(0, 0, 0, 0.35);
 }
 
+/* ---------- barra de título azul clássica ---------- */
 .top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 4px 6px 4px 8px;
+  background: linear-gradient(90deg, #000080, #1084d0);
+  color: #ffffff;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+  min-width: 0;
 }
 
 .brand-mark {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 6px var(--accent-dim);
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  background: #00c000;
+  border: 1px solid #003d00;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 1.15rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #ffffff;
+  white-space: nowrap;
 }
 
 .status {
   margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
+  color: #ffffff;
+  font-size: 11px;
   text-align: right;
-  max-width: 55%;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* ---------- palco ---------- */
 .stage {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 8px;
   flex: 1;
+  padding: 0 5px;
 }
 
 @media (min-width: 900px) {
   .stage {
-    grid-template-columns: 1fr 260px;
+    grid-template-columns: 1fr 264px;
     align-items: stretch;
   }
 }
 
+.stage-main {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* ---------- faixa de comando (botões principais acima do vídeo) ---------- */
+.control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  background: var(--silver);
+  box-shadow: var(--sunken);
+}
+
+.control-bar .btn {
+  flex: 1 1 140px;
+}
+
+/* ---------- vídeo: área cliente afundada ---------- */
 .viewport {
   position: relative;
   background: #000;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 2px solid;
+  border-color: var(--silver-lo) var(--silver-hi) var(--silver-hi) var(--silver-lo);
+  box-shadow: inset 1px 1px 0 var(--silver-edge), inset -1px -1px 0 var(--silver-mid);
   overflow: hidden;
   aspect-ratio: 16 / 9;
   min-height: 240px;
@@ -120,10 +175,6 @@ body {
   background: transparent;
 }
 
-.panel-body[hidden] {
-  display: none;
-}
-
 .viewport.connected #overlay {
   pointer-events: auto;
 }
@@ -140,97 +191,6 @@ body {
   cursor: ns-resize;
 }
 
-.stage-main {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-}
-
-.btn.small {
-  padding: 8px 12px;
-  font-size: 0.85rem;
-}
-
-.camera-picker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.camera-picker select {
-  width: auto;
-  min-width: 200px;
-  padding: 7px 10px;
-  font-size: 0.85rem;
-}
-
-.viewport.drawing + .toolbar #btnDrawArea {
-  border-color: #ff9f1c;
-  color: #ffcf8a;
-}
-
-.validation {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.field.compact {
-  gap: 4px;
-}
-
-.field.compact input[type="number"],
-#yoloServiceUrl {
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: #0d1210;
-  color: var(--ink);
-  font: inherit;
-  font-family: var(--mono);
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 0.85rem;
-  letter-spacing: 0.04em;
-  background: rgba(138, 154, 142, 0.2);
-  color: var(--muted);
-}
-
-.badge[data-state="pass"] {
-  background: var(--accent-dim);
-  color: var(--accent);
-}
-
-.badge[data-state="fail"] {
-  background: rgba(228, 87, 87, 0.2);
-  color: #ffb4b4;
-}
-
-.tip code {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--ink);
-}
-
 .viewport-hint {
   position: absolute;
   inset: 0;
@@ -238,121 +198,336 @@ body {
   place-items: center;
   padding: 24px;
   text-align: center;
-  color: var(--muted);
-  background: linear-gradient(180deg, rgba(11, 15, 12, 0.2), rgba(11, 15, 12, 0.75));
-  font-size: 0.95rem;
-  line-height: 1.45;
+  color: #c0c0c0;
+  background: rgba(0, 0, 0, 0.72);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .viewport-hint strong {
-  color: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
 }
 
 .viewport.live .viewport-hint {
   display: none;
 }
 
-.hud {
-  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
+/* ---------- barra de ferramentas sob o vídeo ---------- */
+.toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
-  backdrop-filter: blur(8px);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px;
+  background: var(--silver);
+  box-shadow: var(--sunken);
 }
 
+.camera-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.camera-picker select {
+  width: auto;
+  min-width: 190px;
+}
+
+.viewport.drawing + .toolbar #btnDrawArea {
+  box-shadow: var(--sunken);
+  background: #d6d6d6;
+}
+
+/* dica abaixo do vídeo: texto simples sobre o cinza */
+.stage-main > .tip {
+  padding: 0 2px;
+}
+
+/* ---------- botões clássicos ---------- */
+.btn {
+  appearance: none;
+  border: none;
+  background: var(--silver);
+  color: var(--ink);
+  border-radius: 0;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  box-shadow: var(--raised);
+}
+
+.btn:active:not(:disabled),
+.btn.primary:active:not(:disabled),
+.btn.danger:active:not(:disabled) {
+  box-shadow: var(--sunken);
+}
+
+.btn:focus-visible {
+  outline: 1px dotted #000;
+  outline-offset: -4px;
+}
+
+.btn:disabled {
+  color: #808080;
+  text-shadow: 1px 1px 0 #ffffff;
+  cursor: not-allowed;
+}
+
+.btn.small {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* cor só como um quadradinho de “lâmpada” antes do texto, como nos HMI antigos */
+.btn.primary::before,
+#btnPause::before,
+.btn.danger::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  vertical-align: -1px;
+  border: 1px solid #404040;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.btn.primary::before {
+  background: #00a000;
+}
+
+#btnPause::before {
+  background: #e89b00;
+}
+
+.btn.danger::before {
+  background: #c00000;
+}
+
+.btn:disabled::before {
+  background: #a0a0a0;
+}
+
+/* ---------- painel lateral ---------- */
+.hud {
+  background: var(--silver);
+  box-shadow: var(--sunken);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--ink);
+}
+
+/* visor do total: LCD fosco, sem brilho neon */
 .counter-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  padding: 7px 9px 8px;
+  background: #101408;
+  border: 2px solid;
+  border-color: var(--silver-lo) var(--silver-hi) var(--silver-hi) var(--silver-lo);
+  box-shadow: inset 1px 1px 0 #000;
 }
 
 .counter-label,
 .metric-label {
   color: var(--muted);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.counter-block .counter-label {
+  color: #9db38a;
+  font-size: 10px;
 }
 
 .counter-value {
   font-family: var(--mono);
-  font-size: clamp(2.8rem, 8vw, 3.6rem);
+  font-size: 40px;
   font-weight: 700;
   line-height: 1;
-  color: var(--accent);
+  color: #7ac74f;
   transition: transform 0.12s ease;
 }
 
 .counter-value.bump {
-  transform: scale(1.06);
+  transform: scale(1.04);
 }
 
+/* mostradores: caixas de grupo com sulco */
 .metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 7px;
+}
+
+.metrics > div {
+  padding: 5px 7px;
+  border: 2px groove #f0f0f0;
 }
 
 .metric-value {
   display: block;
   font-family: var(--mono);
-  font-size: 1.15rem;
-  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #000;
+  margin-top: 1px;
 }
 
-.actions {
+/* validação do lote */
+.validation {
   display: grid;
+  gap: 7px;
+  padding: 7px;
+  border: 2px groove #f0f0f0;
+}
+
+.validation-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 8px;
-  margin-top: auto;
 }
 
-.btn {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: transparent;
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border: 1px solid;
+  border-color: var(--silver-lo) var(--silver-hi) var(--silver-hi) var(--silver-lo);
+  background: var(--silver);
+  color: #404040;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: inset 1px 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+.badge[data-state="pass"] {
+  background: #dff0d8;
+  color: #005c00;
+}
+
+.badge[data-state="fail"] {
+  background: #f3d9d7;
+  color: #8b0000;
+}
+
+/* ---------- campos de formulário ---------- */
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.field > span,
+.field.compact > span {
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field em {
+  font-style: normal;
   color: var(--ink);
-  border-radius: 10px;
-  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.field.compact {
+  gap: 3px;
+}
+
+.field.compact input[type="number"],
+#yoloServiceUrl,
+select {
+  width: 100%;
+  padding: 4px 5px;
+  border: 2px solid;
+  border-color: var(--silver-lo) var(--silver-hi) var(--silver-hi) var(--silver-lo);
+  border-radius: 0;
+  background: #ffffff;
+  color: #000;
   font: inherit;
-  font-weight: 600;
+  font-size: 12px;
+  box-shadow: inset 1px 1px 0 #c0c0c0;
+}
+
+#yoloServiceUrl,
+.field.compact input[type="number"] {
+  font-family: var(--mono);
+}
+
+.field.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field.row .btn {
+  flex: 1;
+  min-width: 110px;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: #000080;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
-.btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(232, 240, 234, 0.25);
+input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #000080;
+  cursor: pointer;
 }
 
-.btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #000;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
 }
 
-.btn.primary {
-  background: var(--accent);
-  border-color: transparent;
-  color: #062214;
+.tip {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
-.btn.primary:hover:not(:disabled) {
-  filter: brightness(1.05);
-  background: var(--accent);
+.tip strong {
+  color: #000;
+  font-weight: 700;
 }
 
-.btn.danger {
-  color: #ffb4b4;
-  border-color: rgba(228, 87, 87, 0.35);
+.tip code {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #000;
+  background: #dfdfdf;
+  padding: 0 2px;
 }
 
+/* ---------- painel de configuração: barra de status/botão inferior ---------- */
 .panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
+  margin: 0 5px 5px;
+  background: var(--silver);
+  box-shadow: var(--sunken);
   overflow: hidden;
+  color: var(--ink);
 }
 
 .panel-toggle {
@@ -361,21 +536,23 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 6px 8px;
   border: 0;
-  background: transparent;
-  color: var(--ink);
+  background: var(--silver);
+  color: #000;
   font: inherit;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 400;
+  box-shadow: inset -1px -1px 0 var(--silver-lo), inset 1px 1px 0 var(--silver-mid);
   cursor: pointer;
   text-align: left;
 }
 
 .chevron {
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
   transform: rotate(45deg);
   transition: transform 0.15s ease;
 }
@@ -386,89 +563,36 @@ body {
 }
 
 .panel-body {
-  padding: 0 16px 16px;
+  padding: 8px;
   display: grid;
-  gap: 12px;
-  border-top: 1px solid var(--border);
+  gap: 10px;
+  border-top: 1px solid var(--silver-lo);
+  box-shadow: inset 0 1px 0 var(--silver-hi);
 }
 
-.field {
-  display: grid;
-  gap: 6px;
-  font-size: 0.9rem;
-}
-
-.field span {
-  color: var(--muted);
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.field em {
-  font-style: normal;
-  color: var(--ink);
-  font-family: var(--mono);
-  font-size: 0.85rem;
-}
-
-.field.row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.field.row .btn {
-  flex: 1;
-  min-width: 120px;
-}
-
-input[type="range"] {
-  width: 100%;
-  accent-color: var(--accent);
-}
-
-select {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: #0d1210;
-  color: var(--ink);
-  font: inherit;
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.tip {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-.tip strong {
-  color: var(--ink);
-  font-weight: 600;
+.panel-body[hidden] {
+  display: none;
 }
 
 @media (max-width: 600px) {
+  .app {
+    margin: 0;
+    min-height: 100dvh;
+  }
+
   .viewport {
     max-height: 52dvh;
   }
 
   .counter-value {
-    font-size: 2.6rem;
+    font-size: 34px;
   }
 
   .status {
-    font-size: 0.78rem;
+    font-size: 10px;
+  }
+
+  .control-bar .btn {
+    flex: 1 1 100%;
   }
 }
